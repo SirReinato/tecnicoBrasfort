@@ -1,0 +1,15 @@
+# Build & artifacts
+bin/
+obj/
+dist/
+*.exe
+*.pdb
+
+# Graphify & local IDE
+graphify-out/
+.vs/
+.vscode/
+
+# Config & logs com dados de ambiente
+config.json
+*.log

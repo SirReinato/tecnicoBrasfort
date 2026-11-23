@@ -1,0 +1,9 @@
+{
+  "DomainFqdn": "corp.example.local",
+  "DnsTestTargets": [
+    "1.1.1.1",
+    "8.8.8.8"
+  ],
+  "ExchangeCheckUrl": "https://mail.example.local/owa",
+  "LogDirectoryOverride": ""
+}
