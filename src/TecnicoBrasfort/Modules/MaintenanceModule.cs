@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Management;
+using System.Threading;
 using TecnicoBrasfort.Core;
 
 namespace TecnicoBrasfort.Modules
@@ -23,9 +25,18 @@ namespace TecnicoBrasfort.Modules
 
         public void CleanTempFiles()
         {
-            Console.WriteLine("Iniciando limpeza de arquivos temporarios...");
+            CleanTempFiles(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult CleanTempFiles(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+            obs.OnOutput("Iniciando limpeza de arquivos temporarios...");
+
             int deleted = 0;
             int skipped = 0;
+            bool cancelled = false;
 
             List<string> targetDirs = new List<string>();
             targetDirs.Add(@"C:\Windows\Temp");
@@ -34,6 +45,12 @@ namespace TecnicoBrasfort.Modules
             {
                 foreach (string userDir in _host.GetDirectories(@"C:\Users"))
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        cancelled = true;
+                        break;
+                    }
+
                     string userTemp = Path.Combine(userDir, @"AppData\Local\Temp");
                     if (_host.DirectoryExists(userTemp))
                     {
@@ -42,8 +59,14 @@ namespace TecnicoBrasfort.Modules
                 }
             }
 
-            for (int i = 0; i < targetDirs.Count; i++)
+            for (int i = 0; i < targetDirs.Count && !cancelled; i++)
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    cancelled = true;
+                    break;
+                }
+
                 string dir = targetDirs[i];
                 if (!_host.DirectoryExists(dir))
                 {
@@ -54,6 +77,12 @@ namespace TecnicoBrasfort.Modules
                 {
                     foreach (string file in _host.GetFiles(dir, "*"))
                     {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            cancelled = true;
+                            break;
+                        }
+
                         if (_host.TryDeleteFile(file))
                         {
                             deleted++;
@@ -70,93 +99,145 @@ namespace TecnicoBrasfort.Modules
                 }
             }
 
-            string summary = string.Format("Limpeza concluida: {0} arquivo(s) removido(s), {1} em uso/ignorado(s).", deleted, skipped);
-            Console.WriteLine(summary);
-            LogAction("Limpeza de arquivos temporarios", 0, summary);
+            sw.Stop();
+            string summary = cancelled
+                ? string.Format("Limpeza cancelada: {0} arquivo(s) removido(s), {1} ignorado(s).", deleted, skipped)
+                : string.Format("Limpeza concluida: {0} arquivo(s) removido(s), {1} em uso/ignorado(s).", deleted, skipped);
+            obs.OnOutput(summary);
+
+            int exitCode = cancelled ? -1 : 0;
+            LogAction("Limpeza de arquivos temporarios", exitCode, summary);
+            return BuildResult("maint_temp", "Limpeza de Temporarios", exitCode, cancelled, false, sw.Elapsed, summary);
         }
 
         public void CleanComponentStore()
         {
-            Console.WriteLine("Executando limpeza de disco avancada (WinSxS)...");
+            CleanComponentStore(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult CleanComponentStore(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            obs.OnOutput("Executando limpeza de disco avancada (WinSxS)...");
+
             ProcessResult res = _runner.Run(
                 "Dism.exe",
                 new string[] { "/Online", "/Cleanup-Image", "/StartComponentCleanup" },
                 ProcessRunner.LongOperationTimeoutMs,
-                PrintLine,
-                PrintError,
-                false);
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                false,
+                cancellationToken);
 
-            Console.WriteLine(res.Summary);
+            obs.OnOutput(res.Summary);
             LogAction("Limpeza de disco avancada (DISM)", res.ExitCode, res.Summary);
+            return BuildResult("maint_winsxs", "Limpeza de Componentes WinSxS", res.ExitCode, res.Cancelled, res.ExitCode == 3010, res.Duration, res.Summary);
         }
 
         public void RunSfc()
         {
-            Console.WriteLine("Executando verificacao e reparo de arquivos do Windows (SFC /scannow)...");
+            RunSfc(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult RunSfc(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            obs.OnOutput("Executando verificacao e reparo de arquivos do Windows (SFC /scannow)...");
+
             ProcessResult res = _runner.Run(
                 "sfc.exe",
                 new string[] { "/scannow" },
                 ProcessRunner.LongOperationTimeoutMs,
-                PrintLine,
-                PrintError,
-                true);
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                true,
+                cancellationToken);
 
-            Console.WriteLine(res.Summary);
+            obs.OnOutput(res.Summary);
             LogAction("SFC /scannow", res.ExitCode, res.Summary);
+            return BuildResult("maint_sfc", "Verificacao de Arquivos (SFC)", res.ExitCode, res.Cancelled, res.ExitCode == 3010, res.Duration, res.Summary);
         }
 
         public void RunDismRestoreHealth()
         {
-            Console.WriteLine("Executando reparo da imagem do Windows (DISM /RestoreHealth)...");
+            RunDismRestoreHealth(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult RunDismRestoreHealth(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            obs.OnOutput("Executando reparo da imagem do Windows (DISM /RestoreHealth)...");
+
             ProcessResult res = _runner.Run(
                 "DISM.exe",
                 new string[] { "/Online", "/Cleanup-Image", "/RestoreHealth" },
                 ProcessRunner.LongOperationTimeoutMs,
-                PrintLine,
-                PrintError,
-                false);
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                false,
+                cancellationToken);
 
-            Console.WriteLine(res.Summary);
+            obs.OnOutput(res.Summary);
             LogAction("DISM /RestoreHealth", res.ExitCode, res.Summary);
+            return BuildResult("maint_dism", "Reparo de Imagem (DISM RestoreHealth)", res.ExitCode, res.Cancelled, res.ExitCode == 3010, res.Duration, res.Summary);
         }
 
         public void CheckDiskC(bool scheduleBootRepair)
         {
+            CheckDiskC(scheduleBootRepair, NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult CheckDiskC(bool scheduleBootRepair, IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+
             if (scheduleBootRepair)
             {
-                Console.WriteLine("Agendando verificacao do disco C: para a proxima reinicializacao (chkntfs /c C:)...");
+                obs.OnOutput("Agendando verificacao do disco C: para a proxima reinicializacao (chkntfs /c C:)...");
                 ProcessResult sched = _runner.Run(
                     "chkntfs.exe",
                     new string[] { "/c", "C:" },
                     ProcessRunner.DefaultTimeoutMs,
-                    PrintLine,
-                    PrintError,
-                    false);
+                    CreateOutputCallback(obs),
+                    CreateErrorCallback(obs),
+                    false,
+                    cancellationToken);
 
-                string summary = sched.ExitCode == 0
+                string summary = !sched.Cancelled && sched.ExitCode == 0
                     ? "Verificacao de disco C: agendada para o proximo boot."
                     : sched.Summary;
-                Console.WriteLine(summary);
+                obs.OnOutput(summary);
                 LogAction("Agendar verificacao disco C:", sched.ExitCode, summary);
-                return;
+
+                bool rebootNeeded = !sched.Cancelled && (sched.ExitCode == 0 || sched.ExitCode == 3010);
+                return BuildResult("disk_schedule_boot", "Agendar Reparo de Disco no Proximo Boot", sched.ExitCode, sched.Cancelled, rebootNeeded, sched.Duration, summary);
             }
 
-            Console.WriteLine("Executando verificacao somente leitura do disco C: (chkdsk C:)...");
+            obs.OnOutput("Executando verificacao somente leitura do disco C: (chkdsk C:)...");
             ProcessResult res = _runner.Run(
                 "chkdsk.exe",
                 new string[] { "C:" },
                 ProcessRunner.LongOperationTimeoutMs,
-                PrintLine,
-                PrintError,
-                false);
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                false,
+                cancellationToken);
 
-            Console.WriteLine(res.Summary);
+            obs.OnOutput(res.Summary);
             LogAction("Verificar disco C: (somente leitura)", res.ExitCode, res.Summary);
+            return BuildResult("disk_check_ro", "Verificar Disco C: (Somente Leitura)", res.ExitCode, res.Cancelled, res.ExitCode == 3010, res.Duration, res.Summary);
         }
 
         public void CheckDiskHealth()
         {
-            Console.WriteLine("Consultando saude dos discos (WMI / SMART)...");
+            CheckDiskHealth(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult CheckDiskHealth(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+            obs.OnOutput("Consultando saude dos discos (WMI / SMART)...");
             int driveCount = 0;
 
             try
@@ -165,18 +246,24 @@ namespace TecnicoBrasfort.Modules
                 {
                     foreach (ManagementObject obj in searcher.Get())
                     {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            sw.Stop();
+                            return BuildResult("maint_disk_health", "Saude Fisica dos Discos (SMART)", -1, true, false, sw.Elapsed, "Consulta cancelada.");
+                        }
+
                         driveCount++;
                         string model = obj["Model"] != null ? obj["Model"].ToString() : "Desconhecido";
                         string status = obj["Status"] != null ? obj["Status"].ToString() : "N/A";
                         long sizeBytes = obj["Size"] != null ? Convert.ToInt64(obj["Size"]) : 0;
                         double sizeGb = sizeBytes / (1024.0 * 1024.0 * 1024.0);
-                        Console.WriteLine(string.Format(" - Disco: {0} | {1:0.0} GB | Status: {2}", model, sizeGb, status));
+                        obs.OnOutput(string.Format(" - Disco: {0} | {1:0.0} GB | Status: {2}", model, sizeGb, status));
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Erro ao consultar Win32_DiskDrive: " + ex.Message);
+                obs.OnError("Erro ao consultar Win32_DiskDrive: " + ex.Message);
             }
 
             bool smartExposed = false;
@@ -186,10 +273,16 @@ namespace TecnicoBrasfort.Modules
                 {
                     foreach (ManagementObject obj in smartSearcher.Get())
                     {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            sw.Stop();
+                            return BuildResult("maint_disk_health", "Saude Fisica dos Discos (SMART)", -1, true, false, sw.Elapsed, "Consulta cancelada.");
+                        }
+
                         smartExposed = true;
                         string name = obj["InstanceName"] != null ? obj["InstanceName"].ToString() : "Disco";
                         bool predict = obj["PredictFailure"] != null && Convert.ToBoolean(obj["PredictFailure"]);
-                        Console.WriteLine(string.Format(" - SMART [{0}]: {1}", name, predict ? "ALERTA DE FALHA PREVISTA" : "OK"));
+                        obs.OnOutput(string.Format(" - SMART [{0}]: {1}", name, predict ? "ALERTA DE FALHA PREVISTA" : "OK"));
                     }
                 }
             }
@@ -199,11 +292,13 @@ namespace TecnicoBrasfort.Modules
 
             if (!smartExposed)
             {
-                Console.WriteLine("[AVISO] Telemetria SMART nao exposta via WMI (comum em controladoras RAID ou adaptadores USB).");
+                obs.OnOutput("[AVISO] Telemetria SMART nao exposta via WMI (comum em controladoras RAID ou adaptadores USB).");
             }
 
+            sw.Stop();
             string summary = string.Format("{0} disco(s) verificado(s); SMART WMI={1}.", driveCount, smartExposed ? "Disponivel" : "Indisponivel");
             LogAction("Saude do disco (HD/SSD)", 0, summary);
+            return BuildResult("maint_disk_health", "Saude Fisica dos Discos (SMART)", 0, false, false, sw.Elapsed, summary);
         }
 
         private void LogAction(string actionName, int exitCode, string summary)
@@ -219,14 +314,35 @@ namespace TecnicoBrasfort.Modules
             _logger.Log(entry);
         }
 
-        private static void PrintLine(string line)
+        private static Action<string> CreateOutputCallback(IExecutionObserver observer)
         {
-            Console.WriteLine(line);
+            return delegate(string line) { observer.OnOutput(line); };
         }
 
-        private static void PrintError(string line)
+        private static Action<string> CreateErrorCallback(IExecutionObserver observer)
         {
-            Console.WriteLine("[STDERR] " + line);
+            return delegate(string line) { observer.OnError("[STDERR] " + line); };
+        }
+
+        private static ActionExecutionResult BuildResult(
+            string actionId,
+            string actionName,
+            int exitCode,
+            bool cancelled,
+            bool rebootRequired,
+            TimeSpan duration,
+            string summary)
+        {
+            ActionExecutionResult result = new ActionExecutionResult();
+            result.ActionId = actionId;
+            result.ActionName = actionName;
+            result.ExitCode = exitCode;
+            result.Cancelled = cancelled;
+            result.Success = !cancelled && (exitCode == 0 || exitCode == 3010);
+            result.RebootRequired = rebootRequired;
+            result.Duration = duration;
+            result.Summary = summary;
+            return result;
         }
     }
 }

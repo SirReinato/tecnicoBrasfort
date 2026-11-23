@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Management;
 using System.ServiceProcess;
+using System.Threading;
 using TecnicoBrasfort.Core;
 
 namespace TecnicoBrasfort.Modules
@@ -26,7 +27,14 @@ namespace TecnicoBrasfort.Modules
 
         public void ClearPrintQueue()
         {
-            Console.WriteLine("Parando servico Spooler de impressao...");
+            ClearPrintQueue(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult ClearPrintQueue(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+            obs.OnOutput("Parando servico Spooler de impressao...");
             int exitCode = 0;
 
             try
@@ -46,22 +54,28 @@ namespace TecnicoBrasfort.Modules
                         }
                         catch (System.ServiceProcess.TimeoutException)
                         {
-                            KillSpoolerProcess();
+                            KillSpoolerProcess(cancellationToken);
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine("[AVISO] Falha ao parar Spooler via ServiceController: " + ex.Message);
-                KillSpoolerProcess();
+                obs.OnError("[AVISO] Falha ao parar Spooler via ServiceController: " + ex.Message);
+                KillSpoolerProcess(cancellationToken);
             }
 
             int removed = 0;
-            if (_host.DirectoryExists(SpoolDir))
+            bool cancelled = cancellationToken.IsCancellationRequested;
+            if (!cancelled && _host.DirectoryExists(SpoolDir))
             {
                 foreach (string file in _host.GetFiles(SpoolDir, "*"))
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        cancelled = true;
+                        break;
+                    }
                     if (_host.TryDeleteFile(file))
                     {
                         removed++;
@@ -83,17 +97,42 @@ namespace TecnicoBrasfort.Modules
             catch (Exception ex)
             {
                 exitCode = 1;
-                Console.WriteLine("[ERRO] Nao foi possivel reiniciar o Spooler: " + ex.Message);
+                obs.OnError("[ERRO] Nao foi possivel reiniciar o Spooler: " + ex.Message);
             }
 
-            string summary = string.Format("Fila de impressao limpa: {0} arquivo(s) removido(s) de spool\\PRINTERS.", removed);
-            Console.WriteLine(summary);
+            sw.Stop();
+            if (cancelled)
+            {
+                exitCode = -1;
+            }
+            string summary = cancelled
+                ? string.Format("Limpeza da fila cancelada ({0} arquivo(s) removido(s)).", removed)
+                : string.Format("Fila de impressao limpa: {0} arquivo(s) removido(s) de spool\\PRINTERS.", removed);
+            obs.OnOutput(summary);
             LogAction("Limpar fila de impressao travada", exitCode, summary);
+
+            ActionExecutionResult result = new ActionExecutionResult();
+            result.ActionId = "print_clear_queue";
+            result.ActionName = "Limpar Fila de Impressao";
+            result.ExitCode = exitCode;
+            result.Cancelled = cancelled;
+            result.Success = !cancelled && exitCode == 0;
+            result.RebootRequired = false;
+            result.Duration = sw.Elapsed;
+            result.Summary = summary;
+            return result;
         }
 
         public void ListPrinters()
         {
-            Console.WriteLine("Impressoras instaladas na maquina (Win32_Printer):");
+            ListPrinters(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult ListPrinters(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+            obs.OnOutput("Impressoras instaladas na maquina (Win32_Printer):");
             int machineCount = 0;
 
             try
@@ -102,40 +141,66 @@ namespace TecnicoBrasfort.Modules
                 {
                     foreach (ManagementObject obj in searcher.Get())
                     {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            sw.Stop();
+                            ActionExecutionResult cancelledRes = new ActionExecutionResult();
+                            cancelledRes.ActionId = "print_list";
+                            cancelledRes.ActionName = "Listar Impressoras Instaladas";
+                            cancelledRes.ExitCode = -1;
+                            cancelledRes.Cancelled = true;
+                            cancelledRes.Success = false;
+                            cancelledRes.Duration = sw.Elapsed;
+                            cancelledRes.Summary = "Listagem cancelada.";
+                            return cancelledRes;
+                        }
+
                         machineCount++;
                         string name = obj["Name"] != null ? obj["Name"].ToString() : "Sem nome";
                         string port = obj["PortName"] != null ? obj["PortName"].ToString() : "";
                         bool isDefault = obj["Default"] != null && Convert.ToBoolean(obj["Default"]);
-                        Console.WriteLine(string.Format(" - {0} (Porta: {1}){2}", name, port, isDefault ? " [PADRAO]" : ""));
+                        obs.OnOutput(string.Format(" - {0} (Porta: {1}){2}", name, port, isDefault ? " [PADRAO]" : ""));
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Erro ao consultar Win32_Printer: " + ex.Message);
+                obs.OnError("Erro ao consultar Win32_Printer: " + ex.Message);
             }
 
-            Console.WriteLine("Impressoras de rede mapeadas para o usuario interativo:");
+            obs.OnOutput("Impressoras de rede mapeadas para o usuario interativo:");
             IList<string> userPrinters = _host.GetUserPrinterConnections(_env.InteractiveUserSid);
             if (userPrinters.Count == 0)
             {
-                Console.WriteLine(" - Nenhuma conexao de rede encontrada em HKU\\<SID>.");
+                obs.OnOutput(" - Nenhuma conexao de rede encontrada em HKU\\<SID>.");
             }
             else
             {
                 for (int i = 0; i < userPrinters.Count; i++)
                 {
-                    Console.WriteLine(" - " + userPrinters[i]);
+                    obs.OnOutput(" - " + userPrinters[i]);
                 }
             }
 
+            sw.Stop();
             string summary = string.Format("{0} impressora(s) de maquina e {1} conexao(oes) do usuario.", machineCount, userPrinters.Count);
             LogAction("Listar impressoras", 0, summary);
+
+            ActionExecutionResult result = new ActionExecutionResult();
+            result.ActionId = "print_list";
+            result.ActionName = "Listar Impressoras Instaladas";
+            result.ExitCode = 0;
+            result.Cancelled = false;
+            result.Success = true;
+            result.RebootRequired = false;
+            result.Duration = sw.Elapsed;
+            result.Summary = summary;
+            return result;
         }
 
-        private void KillSpoolerProcess()
+        private void KillSpoolerProcess(CancellationToken cancellationToken)
         {
-            _runner.Run("taskkill.exe", new string[] { "/F", "/IM", "spoolsv.exe" }, ProcessRunner.DefaultTimeoutMs, null, null, false);
+            _runner.Run("taskkill.exe", new string[] { "/F", "/IM", "spoolsv.exe" }, ProcessRunner.DefaultTimeoutMs, null, null, false, cancellationToken);
         }
 
         private void LogAction(string actionName, int exitCode, string summary)

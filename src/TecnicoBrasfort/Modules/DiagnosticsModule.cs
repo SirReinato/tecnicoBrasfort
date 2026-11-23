@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Management;
+using System.Threading;
 using TecnicoBrasfort.Core;
 
 namespace TecnicoBrasfort.Modules
@@ -21,17 +22,36 @@ namespace TecnicoBrasfort.Modules
 
         public void ShowSystemInfo()
         {
-            Console.WriteLine("Coletando informacoes do sistema...");
+            ShowSystemInfo(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult ShowSystemInfo(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+            obs.OnOutput("Coletando informacoes do sistema...");
 
             try
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    sw.Stop();
+                    return BuildCancelled("diag_sysinfo", "Resumo do Sistema (SO, Hardware, Uptime)", sw.Elapsed);
+                }
+
                 using (ManagementObjectSearcher os = new ManagementObjectSearcher("SELECT Caption, Version, OSArchitecture FROM Win32_OperatingSystem"))
                 {
                     foreach (ManagementObject obj in os.Get())
                     {
-                        Console.WriteLine(string.Format(" - SO: {0} | Versao: {1} | Arq: {2}",
+                        obs.OnOutput(string.Format(" - SO: {0} | Versao: {1} | Arq: {2}",
                             obj["Caption"], obj["Version"], obj["OSArchitecture"]));
                     }
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    sw.Stop();
+                    return BuildCancelled("diag_sysinfo", "Resumo do Sistema (SO, Hardware, Uptime)", sw.Elapsed);
                 }
 
                 using (ManagementObjectSearcher cs = new ManagementObjectSearcher("SELECT Manufacturer, Model, TotalPhysicalMemory, Domain FROM Win32_ComputerSystem"))
@@ -40,7 +60,7 @@ namespace TecnicoBrasfort.Modules
                     {
                         long memBytes = obj["TotalPhysicalMemory"] != null ? Convert.ToInt64(obj["TotalPhysicalMemory"]) : 0;
                         double memGb = memBytes / (1024.0 * 1024.0 * 1024.0);
-                        Console.WriteLine(string.Format(" - Hardware: {0} {1} | RAM: {2:0.0} GB | Dominio: {3}",
+                        obs.OnOutput(string.Format(" - Hardware: {0} {1} | RAM: {2:0.0} GB | Dominio: {3}",
                             obj["Manufacturer"], obj["Model"], memGb, obj["Domain"]));
                     }
                 }
@@ -49,7 +69,7 @@ namespace TecnicoBrasfort.Modules
                 {
                     foreach (ManagementObject obj in bios.Get())
                     {
-                        Console.WriteLine(string.Format(" - Serial (BIOS): {0}", obj["SerialNumber"]));
+                        obs.OnOutput(string.Format(" - Serial (BIOS): {0}", obj["SerialNumber"]));
                     }
                 }
 
@@ -59,7 +79,7 @@ namespace TecnicoBrasfort.Modules
                     {
                         long free = obj["FreeSpace"] != null ? Convert.ToInt64(obj["FreeSpace"]) : 0;
                         long total = obj["Size"] != null ? Convert.ToInt64(obj["Size"]) : 0;
-                        Console.WriteLine(string.Format(" - Volume {0} Livre: {1:0.0} GB / {2:0.0} GB",
+                        obs.OnOutput(string.Format(" - Volume {0} Livre: {1:0.0} GB / {2:0.0} GB",
                             obj["DeviceID"],
                             free / (1024.0 * 1024.0 * 1024.0),
                             total / (1024.0 * 1024.0 * 1024.0)));
@@ -68,15 +88,42 @@ namespace TecnicoBrasfort.Modules
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Erro ao coletar informacoes WMI: " + ex.Message);
+                obs.OnError("Erro ao coletar informacoes WMI: " + ex.Message);
             }
 
+            sw.Stop();
             LogAction("Informacoes do sistema", 0, "Inventario WMI exibido.");
+
+            ActionExecutionResult result = new ActionExecutionResult();
+            result.ActionId = "diag_sysinfo";
+            result.ActionName = "Resumo do Sistema (SO, Hardware, Uptime)";
+            result.ExitCode = 0;
+            result.Success = true;
+            result.Duration = sw.Elapsed;
+            result.Summary = "Inventario WMI exibido.";
+            return result;
         }
 
         public void ShowProcessMonitor(bool openResourceMonitor)
         {
-            Console.WriteLine("Top 15 processos por consumo de memoria (WorkingSet64):");
+            ShowProcessMonitor(openResourceMonitor, NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult ShowProcessMonitor(bool openResourceMonitor, IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                sw.Stop();
+                return BuildCancelled(
+                    openResourceMonitor ? "diag_resmon" : "diag_processes",
+                    openResourceMonitor ? "Abrir Monitor de Recursos (resmon)" : "Top 15 Processos (Memoria)",
+                    sw.Elapsed);
+            }
+
+            obs.OnOutput("Top 15 processos por consumo de memoria (WorkingSet64):");
 
             Process[] all = Process.GetProcesses();
             List<Process> list = new List<Process>(all);
@@ -92,16 +139,39 @@ namespace TecnicoBrasfort.Modules
             {
                 Process p = list[i];
                 double mb = SafeGetWorkingSet(p) / (1024.0 * 1024.0);
-                Console.WriteLine(string.Format(" {0,2}. {1,-28} PID={2,-6} RAM={3,7:0.0} MB", i + 1, p.ProcessName, p.Id, mb));
+                obs.OnOutput(string.Format(" {0,2}. {1,-28} PID={2,-6} RAM={3,7:0.0} MB", i + 1, p.ProcessName, p.Id, mb));
             }
 
+            int exitCode = 0;
+            bool cancelled = false;
             if (openResourceMonitor)
             {
-                Console.WriteLine("Abrindo Monitor de Recursos (resmon.exe)...");
-                _runner.Run("cmd.exe", new string[] { "/c", "start", "", "resmon.exe" }, ProcessRunner.DefaultTimeoutMs, null, null, false);
+                obs.OnOutput("Abrindo Monitor de Recursos (resmon.exe)...");
+                ProcessResult res = _runner.Run(
+                    "cmd.exe",
+                    new string[] { "/c", "start", "", "resmon.exe" },
+                    ProcessRunner.DefaultTimeoutMs,
+                    null,
+                    null,
+                    false,
+                    cancellationToken);
+                exitCode = res.ExitCode;
+                cancelled = res.Cancelled;
             }
 
-            LogAction("Monitor de recursos e processos", 0, string.Format("Top {0} processos exibidos.", limit));
+            sw.Stop();
+            string summary = string.Format("Top {0} processos exibidos.", limit);
+            LogAction("Monitor de recursos e processos", exitCode, summary);
+
+            ActionExecutionResult result = new ActionExecutionResult();
+            result.ActionId = openResourceMonitor ? "diag_resmon" : "diag_processes";
+            result.ActionName = openResourceMonitor ? "Abrir Monitor de Recursos (resmon)" : "Top 15 Processos (Memoria)";
+            result.ExitCode = exitCode;
+            result.Cancelled = cancelled;
+            result.Success = !cancelled && exitCode == 0;
+            result.Duration = sw.Elapsed;
+            result.Summary = summary;
+            return result;
         }
 
         private static long SafeGetWorkingSet(Process p)
@@ -127,6 +197,19 @@ namespace TecnicoBrasfort.Modules
             entry.ExitCode = exitCode;
             entry.Summary = summary;
             _logger.Log(entry);
+        }
+
+        private static ActionExecutionResult BuildCancelled(string actionId, string actionName, TimeSpan duration)
+        {
+            ActionExecutionResult result = new ActionExecutionResult();
+            result.ActionId = actionId;
+            result.ActionName = actionName;
+            result.ExitCode = -1;
+            result.Cancelled = true;
+            result.Success = false;
+            result.Duration = duration;
+            result.Summary = "Execucao cancelada pelo tecnico.";
+            return result;
         }
     }
 }

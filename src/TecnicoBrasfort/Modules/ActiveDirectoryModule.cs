@@ -1,7 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Text.RegularExpressions;
+using System.Threading;
 using TecnicoBrasfort.Core;
 
 namespace TecnicoBrasfort.Modules
@@ -25,113 +27,188 @@ namespace TecnicoBrasfort.Modules
 
         public void ForceComputerGpUpdate()
         {
-            Console.WriteLine("Atualizando GPO de computador (gpupdate /target:computer /force)...");
-            Console.WriteLine("[NOTA] Em sessao elevada UAC, /target:user afetaria a conta administrativa e nao o usuario final.");
+            ForceComputerGpUpdate(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult ForceComputerGpUpdate(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            obs.OnOutput("Atualizando GPO de computador (gpupdate /target:computer /force)...");
+            obs.OnOutput("[NOTA] Em sessao elevada UAC, /target:user afetaria a conta administrativa e nao o usuario final.");
 
             ProcessResult res = _runner.Run(
                 "gpupdate.exe",
                 new string[] { "/target:computer", "/force" },
                 ProcessRunner.DefaultTimeoutMs,
-                PrintLine,
-                PrintError,
-                false);
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                false,
+                cancellationToken);
 
-            Console.WriteLine(res.Summary);
+            obs.OnOutput(res.Summary);
             LogAction("Atualizar GPO de computador", res.ExitCode, res.Summary);
+            return BuildResult("ad_gpupdate", "Atualizar Politicas de Grupo (gpupdate)", res.ExitCode, res.Cancelled, res.ExitCode == 3010, res.Duration, res.Summary);
         }
 
         public void ShowComputerGpResult()
         {
-            Console.WriteLine("Gerando relatorio de GPO aplicada ao computador (gpresult /r /scope:computer)...");
+            ShowComputerGpResult(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult ShowComputerGpResult(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            obs.OnOutput("Gerando relatorio de GPO aplicada ao computador (gpresult /r /scope:computer)...");
             ProcessResult res = _runner.Run(
                 "gpresult.exe",
                 new string[] { "/r", "/scope:computer" },
                 ProcessRunner.DefaultTimeoutMs,
-                PrintLine,
-                PrintError,
-                false);
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                false,
+                cancellationToken);
 
             LogAction("Relatorio GPO de computador", res.ExitCode, res.Summary);
+            return BuildResult("ad_gpresult", "Politicas Aplicadas (gpresult /r)", res.ExitCode, res.Cancelled, false, res.Duration, res.Summary);
         }
 
         public void RunDomainAndExchangeDiagnostics()
         {
-            Console.WriteLine(string.Format("Executando diagnostico AD/GPO/Exchange para dominio '{0}'...", _config.DomainFqdn));
+            RunDomainAndExchangeDiagnostics(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult RunDomainAndExchangeDiagnostics(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+            obs.OnOutput(string.Format("Executando diagnostico AD/GPO/Exchange para dominio '{0}'...", _config.DomainFqdn));
             int failures = 0;
 
-            Console.WriteLine("\n--- 1. Canal Seguro e Descoberta de DC (nltest) ---");
+            if (cancellationToken.IsCancellationRequested)
+            {
+                sw.Stop();
+                return BuildCancelled(sw.Elapsed);
+            }
+
+            obs.OnOutput("--- 1. Canal Seguro e Descoberta de DC (nltest) ---");
             ProcessResult scVerify = _runner.Run(
                 "nltest.exe",
                 new string[] { "/sc_verify:" + _config.DomainFqdn },
                 ProcessRunner.DefaultTimeoutMs,
-                PrintLine,
-                PrintError,
-                false);
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                false,
+                cancellationToken);
+            if (scVerify.Cancelled)
+            {
+                sw.Stop();
+                return BuildCancelled(sw.Elapsed);
+            }
             if (scVerify.ExitCode != 0) failures++;
 
             ProcessResult dsGetDc = _runner.Run(
                 "nltest.exe",
                 new string[] { "/dsgetdc:" + _config.DomainFqdn },
                 ProcessRunner.DefaultTimeoutMs,
-                PrintLine,
-                PrintError,
-                false);
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                false,
+                cancellationToken);
+            if (dsGetDc.Cancelled)
+            {
+                sw.Stop();
+                return BuildCancelled(sw.Elapsed);
+            }
             if (dsGetDc.ExitCode != 0) failures++;
 
-            Console.WriteLine("\n--- 2. Desvio de Relogio contra DC (w32tm /stripchart) ---");
+            obs.OnOutput("--- 2. Desvio de Relogio contra DC (w32tm /stripchart) ---");
             ProcessResult w32tm = _runner.Run(
                 "w32tm.exe",
                 new string[] { "/stripchart", "/computer:" + _config.DomainFqdn, "/samples:1", "/dataonly" },
                 ProcessRunner.DefaultTimeoutMs,
-                PrintLine,
-                PrintError,
-                false);
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                false,
+                cancellationToken);
+            if (w32tm.Cancelled)
+            {
+                sw.Stop();
+                return BuildCancelled(sw.Elapsed);
+            }
 
             double offsetSeconds;
             if (TryParseW32TmOffsetSeconds(w32tm.StandardOutput, out offsetSeconds))
             {
                 if (Math.Abs(offsetSeconds) > MaxKerberosSkewSeconds)
                 {
-                    Console.WriteLine(string.Format(
+                    obs.OnError(string.Format(
                         "[ALERTA KERBEROS] Desvio de relogio de {0:0.0}s excede o limite de 300s (5 minutos)!",
                         offsetSeconds));
                     failures++;
                 }
                 else
                 {
-                    Console.WriteLine(string.Format("Relogio dentro da tolerancia Kerberos ({0:0.00}s).", offsetSeconds));
+                    obs.OnOutput(string.Format("Relogio dentro da tolerancia Kerberos ({0:0.00}s).", offsetSeconds));
                 }
             }
             else
             {
-                Console.WriteLine("[AVISO] Nao foi possivel extrair o desvio numerico do w32tm.");
+                obs.OnOutput("[AVISO] Nao foi possivel extrair o desvio numerico do w32tm.");
             }
 
-            Console.WriteLine("\n--- 3. Tiquetes Kerberos da Sessao Atual (klist) ---");
-            Console.WriteLine("[NOTA] Em elevacao UAC, klist exibe os tiquetes da conta administrativa em execucao.");
-            _runner.Run("klist.exe", new string[0], ProcessRunner.DefaultTimeoutMs, PrintLine, PrintError, false);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                sw.Stop();
+                return BuildCancelled(sw.Elapsed);
+            }
 
-            Console.WriteLine("\n--- 4. Resolucao DNS Autodiscover & Exchange HTTPS (TLS 1.2) ---");
+            obs.OnOutput("--- 3. Tiquetes Kerberos da Sessao Atual (klist) ---");
+            obs.OnOutput("[NOTA] Em elevacao UAC, klist exibe os tiquetes da conta administrativa em execucao.");
+            ProcessResult klistRes = _runner.Run(
+                "klist.exe",
+                new string[0],
+                ProcessRunner.DefaultTimeoutMs,
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                false,
+                cancellationToken);
+            if (klistRes.Cancelled)
+            {
+                sw.Stop();
+                return BuildCancelled(sw.Elapsed);
+            }
+
+            obs.OnOutput("--- 4. Resolucao DNS Autodiscover & Exchange HTTPS (TLS 1.2) ---");
             string autodiscoverHost = "autodiscover." + _config.DomainFqdn;
             try
             {
                 IPAddress[] addrs = Dns.GetHostAddresses(autodiscoverHost);
-                Console.WriteLine(string.Format(" - DNS {0}: {1} registro(s) encontrado(s).", autodiscoverHost, addrs.Length));
+                obs.OnOutput(string.Format(" - DNS {0}: {1} registro(s) encontrado(s).", autodiscoverHost, addrs.Length));
             }
             catch (Exception ex)
             {
-                Console.WriteLine(string.Format(" - DNS {0}: FALHA ({1})", autodiscoverHost, ex.Message));
+                obs.OnError(string.Format(" - DNS {0}: FALHA ({1})", autodiscoverHost, ex.Message));
                 failures++;
             }
 
-            if (!CheckExchangeHttps(_config.ExchangeCheckUrl))
+            if (cancellationToken.IsCancellationRequested)
+            {
+                sw.Stop();
+                return BuildCancelled(sw.Elapsed);
+            }
+
+            if (!CheckExchangeHttps(_config.ExchangeCheckUrl, obs))
             {
                 failures++;
             }
 
+            sw.Stop();
+            int exitCode = failures == 0 ? 0 : 1;
             string summary = string.Format("Diagnostico AD/Exchange concluido com {0} alerta(s)/falha(s).", failures);
-            Console.WriteLine("\n" + summary);
-            LogAction("Diagnostico AD, Canal Seguro, Relogio e Exchange", failures == 0 ? 0 : 1, summary);
+            obs.OnOutput(summary);
+            LogAction("Diagnostico AD, Canal Seguro, Relogio e Exchange", exitCode, summary);
+
+            return BuildResult("ad_diagnostics", "Diagnostico de Dominio, Hora e Exchange", exitCode, false, false, sw.Elapsed, summary);
         }
 
         public static bool TryParseW32TmOffsetSeconds(string output, out double offsetSeconds)
@@ -152,11 +229,11 @@ namespace TecnicoBrasfort.Modules
             return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out offsetSeconds);
         }
 
-        private static bool CheckExchangeHttps(string url)
+        private static bool CheckExchangeHttps(string url, IExecutionObserver observer)
         {
             if (string.IsNullOrEmpty(url))
             {
-                Console.WriteLine(" - ExchangeCheckUrl nao configurada.");
+                observer.OnOutput(" - ExchangeCheckUrl nao configurada.");
                 return false;
             }
 
@@ -170,7 +247,7 @@ namespace TecnicoBrasfort.Modules
 
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
-                    Console.WriteLine(string.Format(" - Exchange HTTPS ({0}): HTTP {1} ({2})",
+                    observer.OnOutput(string.Format(" - Exchange HTTPS ({0}): HTTP {1} ({2})",
                         url, (int)response.StatusCode, response.StatusDescription));
                     return true;
                 }
@@ -181,22 +258,22 @@ namespace TecnicoBrasfort.Modules
                 if (httpResp != null)
                 {
                     int code = (int)httpResp.StatusCode;
-                    Console.WriteLine(string.Format(" - Exchange HTTPS ({0}): HTTP {1} ({2})", url, code, httpResp.StatusDescription));
+                    observer.OnOutput(string.Format(" - Exchange HTTPS ({0}): HTTP {1} ({2})", url, code, httpResp.StatusDescription));
                     return true;
                 }
 
                 if (wex.Status == WebExceptionStatus.TrustFailure || wex.Status == WebExceptionStatus.SecureChannelFailure)
                 {
-                    Console.WriteLine(string.Format(" - Exchange HTTPS ({0}): ERRO DE CERTIFICADO SSL/TLS ({1})", url, wex.Message));
+                    observer.OnError(string.Format(" - Exchange HTTPS ({0}): ERRO DE CERTIFICADO SSL/TLS ({1})", url, wex.Message));
                     return false;
                 }
 
-                Console.WriteLine(string.Format(" - Exchange HTTPS ({0}): FALHA DE REDE/TCP 443 ({1}: {2})", url, wex.Status, wex.Message));
+                observer.OnError(string.Format(" - Exchange HTTPS ({0}): FALHA DE REDE/TCP 443 ({1}: {2})", url, wex.Status, wex.Message));
                 return false;
             }
             catch (Exception ex)
             {
-                Console.WriteLine(string.Format(" - Exchange HTTPS ({0}): ERRO ({1})", url, ex.Message));
+                observer.OnError(string.Format(" - Exchange HTTPS ({0}): ERRO ({1})", url, ex.Message));
                 return false;
             }
         }
@@ -214,14 +291,40 @@ namespace TecnicoBrasfort.Modules
             _logger.Log(entry);
         }
 
-        private static void PrintLine(string line)
+        private static Action<string> CreateOutputCallback(IExecutionObserver observer)
         {
-            Console.WriteLine(line);
+            return delegate(string line) { observer.OnOutput(line); };
         }
 
-        private static void PrintError(string line)
+        private static Action<string> CreateErrorCallback(IExecutionObserver observer)
         {
-            Console.WriteLine("[STDERR] " + line);
+            return delegate(string line) { observer.OnError("[STDERR] " + line); };
+        }
+
+        private static ActionExecutionResult BuildCancelled(TimeSpan duration)
+        {
+            return BuildResult("ad_diagnostics", "Diagnostico de Dominio, Hora e Exchange", -1, true, false, duration, "Diagnostico cancelado pelo tecnico.");
+        }
+
+        private static ActionExecutionResult BuildResult(
+            string actionId,
+            string actionName,
+            int exitCode,
+            bool cancelled,
+            bool rebootRequired,
+            TimeSpan duration,
+            string summary)
+        {
+            ActionExecutionResult result = new ActionExecutionResult();
+            result.ActionId = actionId;
+            result.ActionName = actionName;
+            result.ExitCode = exitCode;
+            result.Cancelled = cancelled;
+            result.Success = !cancelled && (exitCode == 0 || exitCode == 3010);
+            result.RebootRequired = rebootRequired;
+            result.Duration = duration;
+            result.Summary = summary;
+            return result;
         }
     }
 }

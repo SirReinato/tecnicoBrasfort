@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Management;
 using System.Reflection;
@@ -29,7 +30,14 @@ namespace TecnicoBrasfort.Modules
 
         public void ListErrorDevices()
         {
-            Console.WriteLine("Consultando dispositivos com erro (ConfigManagerErrorCode <> 0)...");
+            ListErrorDevices(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult ListErrorDevices(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+            obs.OnOutput("Consultando dispositivos com erro (ConfigManagerErrorCode <> 0)...");
             int count = 0;
 
             try
@@ -38,33 +46,50 @@ namespace TecnicoBrasfort.Modules
                 {
                     foreach (ManagementObject obj in searcher.Get())
                     {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            sw.Stop();
+                            return BuildResult("drv_errors", "Dispositivos com Erro no Gerenciador", -1, true, sw.Elapsed, "Consulta cancelada.");
+                        }
+
                         count++;
-                        Console.WriteLine(string.Format(" - {0} | Codigo={1} | ID={2}",
+                        obs.OnOutput(string.Format(" - {0} | Codigo={1} | ID={2}",
                             obj["Name"], obj["ConfigManagerErrorCode"], obj["DeviceID"]));
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Erro ao consultar dispositivos PnP: " + ex.Message);
+                obs.OnError("Erro ao consultar dispositivos PnP: " + ex.Message);
             }
 
             if (count == 0)
             {
-                Console.WriteLine("Nenhum dispositivo com erro reportado.");
+                obs.OnOutput("Nenhum dispositivo com erro reportado.");
             }
 
-            LogAction("Dispositivos com erro", 0, string.Format("{0} dispositivo(s) com erro.", count));
+            sw.Stop();
+            string summary = string.Format("{0} dispositivo(s) com erro.", count);
+            LogAction("Dispositivos com erro", 0, summary);
+            return BuildResult("drv_errors", "Dispositivos com Erro no Gerenciador", 0, false, sw.Elapsed, summary);
         }
 
         public void BackupDrivers(string customDestination)
         {
+            BackupDrivers(customDestination, NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult BackupDrivers(string customDestination, IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+
             string safeHost = AuditLogger.SanitizeFileSegment(_env.Hostname, "PC");
             string destination = string.IsNullOrEmpty(customDestination)
                 ? Path.Combine(@"C:\Temp", "DriverBackup_" + safeHost)
                 : customDestination.Trim();
 
-            Console.WriteLine(string.Format("Validando espaco livre para backup em '{0}' (minimo 5 GB)...", destination));
+            obs.OnOutput(string.Format("Validando espaco livre para backup em '{0}' (minimo 5 GB)...", destination));
 
             try
             {
@@ -73,77 +98,113 @@ namespace TecnicoBrasfort.Modules
                 {
                     double freeGb = freeBytes / (1024.0 * 1024.0 * 1024.0);
                     string msg = string.Format("Espaco insuficiente em '{0}': {1:0.00} GB livres (minimo exigido: 5.00 GB).", destination, freeGb);
-                    Console.WriteLine("[ERRO] " + msg);
+                    obs.OnError("[ERRO] " + msg);
                     LogAction("Backup dos drivers", 1, msg);
-                    return;
+                    sw.Stop();
+                    return BuildResult("drv_backup", "Backup de Drivers (pnputil)", 1, false, sw.Elapsed, msg);
                 }
             }
             catch (Exception ex)
             {
                 string errMsg = "Nao foi possivel verificar espaco livre no destino: " + ex.Message;
-                Console.WriteLine("[ERRO] " + errMsg);
+                obs.OnError("[ERRO] " + errMsg);
                 LogAction("Backup dos drivers", 1, errMsg);
-                return;
+                sw.Stop();
+                return BuildResult("drv_backup", "Backup de Drivers (pnputil)", 1, false, sw.Elapsed, errMsg);
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                sw.Stop();
+                return BuildResult("drv_backup", "Backup de Drivers (pnputil)", -1, true, sw.Elapsed, "Backup cancelado.");
             }
 
             _host.CreateDirectory(destination);
-            Console.WriteLine("Exportando drivers com pnputil...");
+            obs.OnOutput("Exportando drivers com pnputil...");
             ProcessResult res = _runner.Run(
                 "pnputil.exe",
                 new string[] { "/export-driver", "*", destination },
                 ProcessRunner.LongOperationTimeoutMs,
-                PrintLine,
-                PrintError,
-                false);
+                CreateOutputCallback(obs),
+                CreateErrorCallback(obs),
+                false,
+                cancellationToken);
 
-            Console.WriteLine(res.Summary);
+            sw.Stop();
+            obs.OnOutput(res.Summary);
             LogAction("Backup dos drivers", res.ExitCode, string.Format("Destino: {0} | {1}", destination, res.Summary));
+            return BuildResult("drv_backup", "Backup de Drivers (pnputil)", res.ExitCode, res.Cancelled, res.Duration, res.Summary);
         }
 
         public void SearchPendingUpdates()
         {
-            Console.WriteLine("Buscando atualizacoes pendentes via Windows Update COM (timeout 120s)...");
+            SearchPendingUpdates(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult SearchPendingUpdates(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+            obs.OnOutput("Buscando atualizacoes pendentes via Windows Update COM (timeout 120s)...");
 
             Task<string> searchTask = Task<string>.Factory.StartNew(delegate()
             {
-                return ExecuteComUpdateSearch();
+                return ExecuteComUpdateSearch(obs);
             });
 
             int elapsedSec = 0;
             while (!searchTask.Wait(2000))
             {
                 elapsedSec += 2;
-                Console.Write(string.Format("\rAguardando resposta do Windows Update... {0}s ", elapsedSec));
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    sw.Stop();
+                    string cancelMsg = "Consulta ao Windows Update cancelada pelo tecnico.";
+                    obs.OnOutput(cancelMsg);
+                    LogAction("Atualizacoes / Drivers (Windows Update)", -1, cancelMsg);
+                    return BuildResult("drv_search_updates", "Buscar Atualizacoes Pendentes (Windows Update)", -1, true, sw.Elapsed, cancelMsg);
+                }
+
+                obs.OnOutput(string.Format("Aguardando resposta do Windows Update... {0}s", elapsedSec));
                 if (elapsedSec * 1000 >= UpdateSearchTimeoutMs)
                 {
-                    Console.WriteLine();
+                    sw.Stop();
                     string timeoutMsg = "Tempo limite excedido (120s) na consulta ao Windows Update / WSUS.";
-                    Console.WriteLine("[AVISO] " + timeoutMsg);
+                    obs.OnError("[AVISO] " + timeoutMsg);
                     LogAction("Atualizacoes / Drivers (Windows Update)", -1, timeoutMsg);
-                    return;
+                    return BuildResult("drv_search_updates", "Buscar Atualizacoes Pendentes (Windows Update)", -1, false, sw.Elapsed, timeoutMsg);
                 }
             }
 
-            Console.WriteLine();
+            sw.Stop();
             string resultSummary = searchTask.Result;
-            Console.WriteLine(resultSummary);
+            obs.OnOutput(resultSummary);
             LogAction("Atualizacoes / Drivers (Windows Update)", 0, resultSummary);
+            return BuildResult("drv_search_updates", "Buscar Atualizacoes Pendentes (Windows Update)", 0, false, sw.Elapsed, resultSummary);
         }
 
         public void OpenWindowsUpdateSettings()
         {
-            Console.WriteLine("Abrindo configuracoes do Windows Update...");
+            OpenWindowsUpdateSettings(NullExecutionObserver.Instance, CancellationToken.None);
+        }
+
+        public ActionExecutionResult OpenWindowsUpdateSettings(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            obs.OnOutput("Abrindo configuracoes do Windows Update...");
             ProcessResult res = _runner.Run(
                 "cmd.exe",
                 new string[] { "/c", "start", "", "ms-settings:windowsupdate" },
                 ProcessRunner.DefaultTimeoutMs,
                 null,
                 null,
-                false);
+                false,
+                cancellationToken);
             LogAction("Procurar atualizacoes do Windows", res.ExitCode, "Tela do Windows Update aberta.");
+            return BuildResult("drv_wu_settings", "Abrir Configuracoes do Windows Update", res.ExitCode, res.Cancelled, res.Duration, "Tela do Windows Update aberta.");
         }
 
-        private static string ExecuteComUpdateSearch()
+        private static string ExecuteComUpdateSearch(IExecutionObserver observer)
         {
             try
             {
@@ -169,7 +230,7 @@ namespace TecnicoBrasfort.Modules
                 {
                     object item = updates.GetType().InvokeMember("Item", BindingFlags.GetProperty, null, updates, new object[] { i });
                     string title = Convert.ToString(item.GetType().InvokeMember("Title", BindingFlags.GetProperty, null, item, null));
-                    Console.WriteLine(string.Format(" - {0}", title));
+                    observer.OnOutput(string.Format(" - {0}", title));
                 }
 
                 return string.Format("{0} atualizacao(oes) pendente(s) encontrada(s).", count);
@@ -220,14 +281,34 @@ namespace TecnicoBrasfort.Modules
             _logger.Log(entry);
         }
 
-        private static void PrintLine(string line)
+        private static Action<string> CreateOutputCallback(IExecutionObserver observer)
         {
-            Console.WriteLine(line);
+            return delegate(string line) { observer.OnOutput(line); };
         }
 
-        private static void PrintError(string line)
+        private static Action<string> CreateErrorCallback(IExecutionObserver observer)
         {
-            Console.WriteLine("[STDERR] " + line);
+            return delegate(string line) { observer.OnError("[STDERR] " + line); };
+        }
+
+        private static ActionExecutionResult BuildResult(
+            string actionId,
+            string actionName,
+            int exitCode,
+            bool cancelled,
+            TimeSpan duration,
+            string summary)
+        {
+            ActionExecutionResult result = new ActionExecutionResult();
+            result.ActionId = actionId;
+            result.ActionName = actionName;
+            result.ExitCode = exitCode;
+            result.Cancelled = cancelled;
+            result.Success = !cancelled && (exitCode == 0 || exitCode == 3010);
+            result.RebootRequired = exitCode == 3010;
+            result.Duration = duration;
+            result.Summary = summary;
+            return result;
         }
     }
 }

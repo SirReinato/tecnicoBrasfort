@@ -175,93 +175,58 @@ namespace TecnicoBrasfort.Core
             switch (action.Id)
             {
                 case "maint_temp":
-                    _maintenance.CleanTempFiles();
-                    break;
+                    return _maintenance.CleanTempFiles(observer, cancellationToken);
                 case "maint_winsxs":
-                    _maintenance.CleanComponentStore();
-                    break;
+                    return _maintenance.CleanComponentStore(observer, cancellationToken);
                 case "maint_sfc":
-                    _maintenance.RunSfc();
-                    break;
+                    return _maintenance.RunSfc(observer, cancellationToken);
                 case "maint_dism":
-                    _maintenance.RunDismRestoreHealth();
-                    break;
+                    return _maintenance.RunDismRestoreHealth(observer, cancellationToken);
                 case "disk_check_ro":
-                    _maintenance.CheckDiskC(false);
-                    break;
+                    return _maintenance.CheckDiskC(false, observer, cancellationToken);
                 case "disk_schedule_boot":
-                    _maintenance.CheckDiskC(true);
-                    break;
+                    return _maintenance.CheckDiskC(true, observer, cancellationToken);
                 case "maint_disk_health":
-                    _maintenance.CheckDiskHealth();
-                    break;
+                    return _maintenance.CheckDiskHealth(observer, cancellationToken);
                 case "net_reset":
-                    _network.ResetNetwork();
-                    break;
+                    return _network.ResetNetwork(observer, cancellationToken);
                 case "net_info":
-                    _network.ShowNetworkInfo();
-                    break;
+                    return _network.ShowNetworkInfo(observer, cancellationToken);
                 case "net_connectivity":
-                    _network.RunConnectivityTests();
-                    break;
+                    return _network.RunConnectivityTests(observer, cancellationToken);
                 case "net_flush_dns":
-                    _network.FlushDns();
-                    break;
+                    return _network.FlushDns(observer, cancellationToken);
                 case "net_connections":
-                    _network.OpenNetworkConnections();
-                    break;
+                    return _network.OpenNetworkConnections(observer, cancellationToken);
                 case "print_clear_queue":
-                    _printing.ClearPrintQueue();
-                    break;
+                    return _printing.ClearPrintQueue(observer, cancellationToken);
                 case "print_list":
-                    _printing.ListPrinters();
-                    break;
+                    return _printing.ListPrinters(observer, cancellationToken);
                 case "diag_sysinfo":
-                    _diagnostics.ShowSystemInfo();
-                    break;
+                    return _diagnostics.ShowSystemInfo(observer, cancellationToken);
                 case "diag_processes":
-                    _diagnostics.ShowProcessMonitor(false);
-                    break;
+                    return _diagnostics.ShowProcessMonitor(false, observer, cancellationToken);
                 case "diag_resmon":
-                    _diagnostics.ShowProcessMonitor(true);
-                    break;
+                    return _diagnostics.ShowProcessMonitor(true, observer, cancellationToken);
                 case "drv_errors":
-                    _driversUpdates.ListErrorDevices();
-                    break;
+                    return _driversUpdates.ListErrorDevices(observer, cancellationToken);
                 case "drv_search_updates":
-                    _driversUpdates.SearchPendingUpdates();
-                    break;
+                    return _driversUpdates.SearchPendingUpdates(observer, cancellationToken);
                 case "drv_backup":
-                    _driversUpdates.BackupDrivers("");
-                    break;
+                    return _driversUpdates.BackupDrivers("", observer, cancellationToken);
                 case "drv_wu_settings":
-                    _driversUpdates.OpenWindowsUpdateSettings();
-                    break;
+                    return _driversUpdates.OpenWindowsUpdateSettings(observer, cancellationToken);
                 case "ad_gpupdate":
-                    _activeDirectory.ForceComputerGpUpdate();
-                    break;
+                    return _activeDirectory.ForceComputerGpUpdate(observer, cancellationToken);
                 case "ad_gpresult":
-                    _activeDirectory.ShowComputerGpResult();
-                    break;
+                    return _activeDirectory.ShowComputerGpResult(observer, cancellationToken);
                 case "ad_diagnostics":
-                    _activeDirectory.RunDomainAndExchangeDiagnostics();
-                    break;
+                    return _activeDirectory.RunDomainAndExchangeDiagnostics(observer, cancellationToken);
                 case "audit_logs":
-                    _audit.ShowHostLogs();
-                    break;
+                    return _audit.ShowHostLogs(observer, cancellationToken);
                 default:
                     throw new InvalidOperationException("Acao desconhecida: " + action.Id);
             }
-
-            ActionExecutionResult ok = new ActionExecutionResult();
-            ok.ActionId = action.Id;
-            ok.ActionName = action.Name;
-            ok.ExitCode = 0;
-            ok.Success = true;
-            ok.Cancelled = false;
-            ok.RebootRequired = action.RequiresReboot;
-            ok.Summary = "Concluido.";
-            return ok;
         }
     }
 }
