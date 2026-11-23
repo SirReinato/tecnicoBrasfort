@@ -94,6 +94,53 @@ namespace TecnicoBrasfort.Core
             return printers;
         }
 
+        public bool HasPendingSystemReboot()
+        {
+            try
+            {
+                using (RegistryKey baseKey = OpenLocalMachineKey())
+                {
+                    if (baseKey == null)
+                    {
+                        return false;
+                    }
+
+                    using (RegistryKey cbsKey = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending"))
+                    {
+                        if (cbsKey != null)
+                        {
+                            return true;
+                        }
+                    }
+
+                    using (RegistryKey wuKey = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"))
+                    {
+                        if (wuKey != null)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            return false;
+        }
+
+        private static RegistryKey OpenLocalMachineKey()
+        {
+            try
+            {
+                return RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            }
+            catch (Exception)
+            {
+                return RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Default);
+            }
+        }
+
         public static string FormatPrinterConnectionName(string subKeyName)
         {
             if (string.IsNullOrEmpty(subKeyName))

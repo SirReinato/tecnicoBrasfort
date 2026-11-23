@@ -14,5 +14,6 @@ namespace TecnicoBrasfort.Core
         bool TryDeleteFile(string path);
         long GetAvailableFreeSpaceBytes(string path);
         IList<string> GetUserPrinterConnections(string userSid);
+        bool HasPendingSystemReboot();
     }
 }

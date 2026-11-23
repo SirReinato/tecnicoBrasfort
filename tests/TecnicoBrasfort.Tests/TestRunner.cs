@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using TecnicoBrasfort.Core;
 
 namespace TecnicoBrasfort.Tests
@@ -70,6 +71,18 @@ namespace TecnicoBrasfort.Tests
             Action<string> onError,
             bool useUnicodeOutput)
         {
+            return Run(fileName, args, timeoutMs, onOutput, onError, useUnicodeOutput, CancellationToken.None);
+        }
+
+        public ProcessResult Run(
+            string fileName,
+            string[] args,
+            int timeoutMs,
+            Action<string> onOutput,
+            Action<string> onError,
+            bool useUnicodeOutput,
+            CancellationToken cancellationToken)
+        {
             RecordedInvocation inv = new RecordedInvocation();
             inv.FileName = fileName;
             inv.Args = args;
@@ -78,6 +91,13 @@ namespace TecnicoBrasfort.Tests
             Invocations.Add(inv);
 
             ProcessResult res = new ProcessResult();
+            if (cancellationToken.IsCancellationRequested)
+            {
+                res.ExitCode = -1;
+                res.Cancelled = true;
+                res.Summary = "Fake cancelled";
+                return res;
+            }
             res.ExitCode = NextExitCode;
             res.StandardOutput = NextStdout;
             res.Summary = "Fake result";
@@ -92,6 +112,7 @@ namespace TecnicoBrasfort.Tests
         public readonly Dictionary<string, IList<string>> PrinterConnections = new Dictionary<string, IList<string>>(StringComparer.OrdinalIgnoreCase);
         public long FreeSpaceBytes = 10L * 1024L * 1024L * 1024L;
         public string ThrowOnDirectoryPrefix = "";
+        public bool PendingSystemReboot = false;
 
         public bool FileExists(string path)
         {
@@ -164,6 +185,11 @@ namespace TecnicoBrasfort.Tests
                 return PrinterConnections[userSid];
             }
             return new List<string>();
+        }
+
+        public bool HasPendingSystemReboot()
+        {
+            return PendingSystemReboot;
         }
     }
 

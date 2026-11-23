@@ -15,6 +15,14 @@ namespace TecnicoBrasfort.Core
         private readonly string _primaryDir;
         private readonly string _secondaryDir;
         private readonly string _sessionSecondaryFileName;
+        private readonly object _syncLock = new object();
+        private IExecutionObserver _observer = NullExecutionObserver.Instance;
+
+        public IExecutionObserver Observer
+        {
+            get { return _observer; }
+            set { _observer = value ?? NullExecutionObserver.Instance; }
+        }
 
         public AuditLogger(IHostEnvironment host, EnvironmentInfo env, AppConfig config)
             : this(
@@ -71,26 +79,65 @@ namespace TecnicoBrasfort.Core
                 entry.Summary,
                 Environment.NewLine);
 
-            // Gravacao primaria garantida em ProgramData
-            _host.CreateDirectory(_primaryDir);
-            string primaryFile = Path.Combine(
-                _primaryDir,
-                string.Format("{0}_{1:yyyy-MM-dd}.log", _hostname, entry.Timestamp));
-            _host.AppendAllText(primaryFile, line);
+            lock (_syncLock)
+            {
+                // Gravacao primaria garantida em ProgramData
+                _host.CreateDirectory(_primaryDir);
+                string primaryFile = Path.Combine(
+                    _primaryDir,
+                    string.Format("{0}_{1:yyyy-MM-dd}.log", _hostname, entry.Timestamp));
+                _host.AppendAllText(primaryFile, line);
 
-            // Copia secundaria por sessao (nao bloqueante)
-            try
-            {
-                _host.CreateDirectory(_secondaryDir);
-                string secondaryFile = Path.Combine(_secondaryDir, _sessionSecondaryFileName);
-                _host.AppendAllText(secondaryFile, line);
+                // Copia secundaria por sessao (nao bloqueante)
+                try
+                {
+                    _host.CreateDirectory(_secondaryDir);
+                    string secondaryFile = Path.Combine(_secondaryDir, _sessionSecondaryFileName);
+                    _host.AppendAllText(secondaryFile, line);
+                }
+                catch (Exception ex)
+                {
+                    _observer.OnError(string.Format(
+                        "[AVISO] Nao foi possivel gravar copia secundaria de log em '{0}': {1}",
+                        _secondaryDir,
+                        ex.Message));
+                }
             }
-            catch (Exception ex)
+        }
+
+        public string SaveTicketSummary(string summaryText, DateTime timestamp)
+        {
+            if (string.IsNullOrEmpty(summaryText))
             {
-                Console.WriteLine(string.Format(
-                    "[AVISO] Nao foi possivel gravar copia secundaria de log em '{0}': {1}",
-                    _secondaryDir,
-                    ex.Message));
+                return "";
+            }
+
+            string fileName = string.Format(
+                "Fechamento_{0}_{1:yyyy-MM-dd}_{1:HHmmss}.txt",
+                _hostname,
+                timestamp);
+
+            lock (_syncLock)
+            {
+                _host.CreateDirectory(_primaryDir);
+                string primaryFile = Path.Combine(_primaryDir, fileName);
+                _host.AppendAllText(primaryFile, summaryText);
+
+                try
+                {
+                    _host.CreateDirectory(_secondaryDir);
+                    string secondaryFile = Path.Combine(_secondaryDir, fileName);
+                    _host.AppendAllText(secondaryFile, summaryText);
+                }
+                catch (Exception ex)
+                {
+                    _observer.OnError(string.Format(
+                        "[AVISO] Nao foi possivel gravar copia secundaria do fechamento em '{0}': {1}",
+                        _secondaryDir,
+                        ex.Message));
+                }
+
+                return primaryFile;
             }
         }
 
