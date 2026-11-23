@@ -10,6 +10,13 @@ namespace TecnicoBrasfort.UI
 {
     public class ExecutionProgressForm : Form, IExecutionObserver
     {
+        private static readonly Color ColorDarkSlate = Color.FromArgb(48, 56, 65);      // #303841
+        private static readonly Color ColorProgressTrack = Color.FromArgb(32, 38, 45);  // #20262D
+        private static readonly Color ColorWarmBg = Color.FromArgb(239, 232, 221);      // #EFE8DD
+        private static readonly Color ColorTealAccent = Color.FromArgb(118, 171, 174);  // #76ABAE
+        private static readonly Color ColorOrangeCta = Color.FromArgb(255, 87, 34);     // #FF5722
+        private static readonly Color ColorBorder = Color.FromArgb(212, 204, 192);      // #D4CCC0
+
         private readonly BatchExecutionEngine _engine;
         private readonly IList<ActionDefinition> _actions;
         private readonly Form _ownerForm;
@@ -19,7 +26,9 @@ namespace TecnicoBrasfort.UI
 
         private readonly Label _lblStep;
         private readonly Label _lblElapsed;
-        private readonly ProgressBar _progressBar;
+        private readonly Panel _pnlProgressTrack;
+        private readonly Panel _pnlProgressFill;
+        private readonly Label _lblProgressPct;
         private readonly TextBox _txtLog;
         private readonly Panel _pnlReboot;
         private readonly Label _lblReboot;
@@ -32,6 +41,7 @@ namespace TecnicoBrasfort.UI
 
         private BackgroundStatusBannerForm _bannerForm;
         private ActionDefinition _currentAction;
+        private int _progressPct;
         private bool _isRunning;
         private bool _isBackgroundMode;
 
@@ -50,64 +60,105 @@ namespace TecnicoBrasfort.UI
             _ownerForm = ownerForm;
             _cts = new CancellationTokenSource();
             _stopwatch = new Stopwatch();
+            _progressPct = 0;
             _isRunning = false;
             _isBackgroundMode = false;
 
             Text = "Tecnico Brasfort - Execucao em Andamento";
             FormBorderStyle = FormBorderStyle.Sizable;
-            MinimumSize = new Size(680, 520);
-            ClientSize = new Size(760, 580);
+            MinimumSize = new Size(720, 560);
+            ClientSize = new Size(800, 610);
             StartPosition = FormStartPosition.CenterParent;
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
+            BackColor = ColorWarmBg;
             Icon = SystemIcons.Shield;
+
+            // Cabecalho escuro (#303841)
+            Panel pnlHeader = new Panel();
+            pnlHeader.Location = new Point(0, 0);
+            pnlHeader.Size = new Size(800, 82);
+            pnlHeader.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            pnlHeader.BackColor = ColorDarkSlate;
+            Controls.Add(pnlHeader);
 
             _lblStep = new Label();
             _lblStep.Text = "Preparando execucao...";
-            _lblStep.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            _lblStep.Location = new Point(16, 14);
-            _lblStep.Size = new Size(560, 24);
+            _lblStep.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            _lblStep.ForeColor = Color.White;
+            _lblStep.Location = new Point(16, 12);
+            _lblStep.Size = new Size(610, 26);
             _lblStep.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            Controls.Add(_lblStep);
+            pnlHeader.Controls.Add(_lblStep);
 
             _lblElapsed = new Label();
             _lblElapsed.Text = "Tempo: 00:00";
-            _lblElapsed.TextAlign = ContentAlignment.MiddleRight;
-            _lblElapsed.Location = new Point(590, 14);
-            _lblElapsed.Size = new Size(154, 24);
+            _lblElapsed.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            _lblElapsed.BackColor = ColorTealAccent;
+            _lblElapsed.ForeColor = ColorDarkSlate;
+            _lblElapsed.TextAlign = ContentAlignment.MiddleCenter;
+            _lblElapsed.Location = new Point(644, 12);
+            _lblElapsed.Size = new Size(140, 26);
             _lblElapsed.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            Controls.Add(_lblElapsed);
+            pnlHeader.Controls.Add(_lblElapsed);
 
-            _progressBar = new ProgressBar();
-            _progressBar.Location = new Point(16, 44);
-            _progressBar.Size = new Size(728, 20);
-            _progressBar.Minimum = 0;
-            _progressBar.Maximum = 100;
-            _progressBar.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            Controls.Add(_progressBar);
+            _pnlProgressTrack = new Panel();
+            _pnlProgressTrack.Location = new Point(16, 48);
+            _pnlProgressTrack.Size = new Size(768, 20);
+            _pnlProgressTrack.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            _pnlProgressTrack.BackColor = ColorProgressTrack;
+            _pnlProgressTrack.SizeChanged += delegate(object s, EventArgs e) { UpdateProgressVisual(); };
+            pnlHeader.Controls.Add(_pnlProgressTrack);
 
+            _pnlProgressFill = new Panel();
+            _pnlProgressFill.Location = new Point(0, 0);
+            _pnlProgressFill.Size = new Size(0, 20);
+            _pnlProgressFill.BackColor = ColorTealAccent;
+            _pnlProgressTrack.Controls.Add(_pnlProgressFill);
+
+            _lblProgressPct = new Label();
+            _lblProgressPct.Text = "0%";
+            _lblProgressPct.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+            _lblProgressPct.ForeColor = Color.White;
+            _lblProgressPct.BackColor = Color.Transparent;
+            _lblProgressPct.TextAlign = ContentAlignment.MiddleCenter;
+            _lblProgressPct.Dock = DockStyle.Fill;
+            _pnlProgressTrack.Controls.Add(_lblProgressPct);
+            _lblProgressPct.BringToFront();
+
+            // Saida em tempo real
             Label lblLogTitle = new Label();
             lblLogTitle.Text = "Saida em tempo real:";
-            lblLogTitle.Location = new Point(16, 72);
+            lblLogTitle.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            lblLogTitle.ForeColor = ColorDarkSlate;
+            lblLogTitle.Location = new Point(16, 92);
             lblLogTitle.Size = new Size(300, 20);
             Controls.Add(lblLogTitle);
+
+            Panel pnlLogCard = new Panel();
+            pnlLogCard.Location = new Point(16, 114);
+            pnlLogCard.Size = new Size(768, 224);
+            pnlLogCard.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            pnlLogCard.BackColor = ColorDarkSlate;
+            pnlLogCard.Padding = new Padding(8);
+            Controls.Add(pnlLogCard);
 
             _txtLog = new TextBox();
             _txtLog.Multiline = true;
             _txtLog.ReadOnly = true;
+            _txtLog.BorderStyle = BorderStyle.None;
             _txtLog.ScrollBars = ScrollBars.Vertical;
             _txtLog.Font = new Font("Consolas", 9F, FontStyle.Regular);
-            _txtLog.BackColor = Color.FromArgb(24, 24, 24);
-            _txtLog.ForeColor = Color.Gainsboro;
-            _txtLog.Location = new Point(16, 94);
-            _txtLog.Size = new Size(728, 220);
-            _txtLog.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            Controls.Add(_txtLog);
+            _txtLog.BackColor = ColorDarkSlate;
+            _txtLog.ForeColor = Color.FromArgb(242, 242, 242);
+            _txtLog.Dock = DockStyle.Fill;
+            pnlLogCard.Controls.Add(_txtLog);
 
+            // Faixa de reboot (exibida ao concluir)
             _pnlReboot = new Panel();
-            _pnlReboot.Location = new Point(16, 322);
-            _pnlReboot.Size = new Size(728, 34);
-            _pnlReboot.BackColor = Color.WhiteSmoke;
+            _pnlReboot.Location = new Point(16, 346);
+            _pnlReboot.Size = new Size(768, 32);
+            _pnlReboot.BackColor = Color.White;
             _pnlReboot.BorderStyle = BorderStyle.FixedSingle;
             _pnlReboot.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             _pnlReboot.Visible = false;
@@ -120,63 +171,103 @@ namespace TecnicoBrasfort.UI
             _lblReboot.Padding = new Padding(8, 0, 0, 0);
             _pnlReboot.Controls.Add(_lblReboot);
 
+            // Card de Fechamento de Chamado
             Label lblSummaryTitle = new Label();
             lblSummaryTitle.Text = "Fechamento de Chamado:";
-            lblSummaryTitle.Location = new Point(16, 364);
+            lblSummaryTitle.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            lblSummaryTitle.ForeColor = ColorDarkSlate;
+            lblSummaryTitle.Location = new Point(16, 384);
             lblSummaryTitle.Size = new Size(300, 20);
             lblSummaryTitle.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             Controls.Add(lblSummaryTitle);
 
+            Panel pnlSummaryCard = new Panel();
+            pnlSummaryCard.Location = new Point(16, 406);
+            pnlSummaryCard.Size = new Size(768, 140);
+            pnlSummaryCard.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            pnlSummaryCard.BackColor = Color.White;
+            pnlSummaryCard.BorderStyle = BorderStyle.FixedSingle;
+            pnlSummaryCard.Padding = new Padding(8);
+            Controls.Add(pnlSummaryCard);
+
             _txtSummary = new TextBox();
             _txtSummary.Multiline = true;
             _txtSummary.ReadOnly = true;
+            _txtSummary.BorderStyle = BorderStyle.None;
             _txtSummary.ScrollBars = ScrollBars.Vertical;
             _txtSummary.Font = new Font("Consolas", 9F, FontStyle.Regular);
-            _txtSummary.BackColor = Color.WhiteSmoke;
-            _txtSummary.Location = new Point(16, 386);
-            _txtSummary.Size = new Size(728, 136);
-            _txtSummary.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            Controls.Add(_txtSummary);
+            _txtSummary.BackColor = Color.White;
+            _txtSummary.ForeColor = ColorDarkSlate;
+            _txtSummary.Dock = DockStyle.Fill;
+            pnlSummaryCard.Controls.Add(_txtSummary);
 
+            // Barra inferior organizada
             _btnMinimizeBg = new Button();
             _btnMinimizeBg.Text = "Minimizar para Segundo Plano";
-            _btnMinimizeBg.Location = new Point(16, 534);
-            _btnMinimizeBg.Size = new Size(210, 32);
+            _btnMinimizeBg.Location = new Point(16, 560);
+            _btnMinimizeBg.Size = new Size(212, 34);
             _btnMinimizeBg.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            _btnMinimizeBg.FlatStyle = FlatStyle.Flat;
+            _btnMinimizeBg.BackColor = Color.White;
+            _btnMinimizeBg.ForeColor = ColorDarkSlate;
+            _btnMinimizeBg.FlatAppearance.BorderColor = ColorBorder;
+            _btnMinimizeBg.Cursor = Cursors.Hand;
             _btnMinimizeBg.Click += OnMinimizeBackgroundClick;
             Controls.Add(_btnMinimizeBg);
 
             _btnCancel = new Button();
             _btnCancel.Text = "Cancelar";
-            _btnCancel.Location = new Point(236, 534);
-            _btnCancel.Size = new Size(96, 32);
+            _btnCancel.Location = new Point(236, 560);
+            _btnCancel.Size = new Size(100, 34);
             _btnCancel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            _btnCancel.FlatStyle = FlatStyle.Flat;
+            _btnCancel.BackColor = ColorOrangeCta;
+            _btnCancel.ForeColor = Color.White;
+            _btnCancel.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            _btnCancel.FlatAppearance.BorderSize = 0;
+            _btnCancel.Cursor = Cursors.Hand;
             _btnCancel.Click += OnCancelClick;
             Controls.Add(_btnCancel);
 
             _btnCopySummary = new Button();
             _btnCopySummary.Text = "Copiar fechamento";
-            _btnCopySummary.Location = new Point(368, 534);
-            _btnCopySummary.Size = new Size(146, 32);
+            _btnCopySummary.Location = new Point(394, 560);
+            _btnCopySummary.Size = new Size(150, 34);
             _btnCopySummary.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            _btnCopySummary.FlatStyle = FlatStyle.Flat;
+            _btnCopySummary.BackColor = ColorTealAccent;
+            _btnCopySummary.ForeColor = Color.White;
+            _btnCopySummary.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            _btnCopySummary.FlatAppearance.BorderSize = 0;
+            _btnCopySummary.Cursor = Cursors.Hand;
             _btnCopySummary.Enabled = false;
             _btnCopySummary.Click += OnCopySummaryClick;
             Controls.Add(_btnCopySummary);
 
             _btnOpenLogs = new Button();
             _btnOpenLogs.Text = "Abrir pasta de logs";
-            _btnOpenLogs.Location = new Point(522, 534);
-            _btnOpenLogs.Size = new Size(134, 32);
+            _btnOpenLogs.Location = new Point(552, 560);
+            _btnOpenLogs.Size = new Size(140, 34);
             _btnOpenLogs.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            _btnOpenLogs.FlatStyle = FlatStyle.Flat;
+            _btnOpenLogs.BackColor = Color.White;
+            _btnOpenLogs.ForeColor = ColorDarkSlate;
+            _btnOpenLogs.FlatAppearance.BorderColor = ColorBorder;
+            _btnOpenLogs.Cursor = Cursors.Hand;
             _btnOpenLogs.Enabled = false;
             _btnOpenLogs.Click += OnOpenLogsClick;
             Controls.Add(_btnOpenLogs);
 
             _btnClose = new Button();
             _btnClose.Text = "Fechar";
-            _btnClose.Location = new Point(664, 534);
-            _btnClose.Size = new Size(80, 32);
+            _btnClose.Location = new Point(700, 560);
+            _btnClose.Size = new Size(84, 34);
             _btnClose.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            _btnClose.FlatStyle = FlatStyle.Flat;
+            _btnClose.BackColor = Color.FromArgb(220, 215, 207);
+            _btnClose.ForeColor = ColorDarkSlate;
+            _btnClose.FlatAppearance.BorderColor = ColorBorder;
+            _btnClose.Cursor = Cursors.Hand;
             _btnClose.Enabled = false;
             _btnClose.Click += delegate(object sender, EventArgs e) { Close(); };
             Controls.Add(_btnClose);
@@ -247,8 +338,7 @@ namespace TecnicoBrasfort.UI
                 _currentAction = action;
                 string name = action != null ? action.Name : "";
                 _lblStep.Text = string.Format("Etapa {0} de {1}: {2}", stepIndex, totalSteps, name);
-                int pct = totalSteps > 0 ? (int)((stepIndex - 1) * 100.0 / totalSteps) : 0;
-                _progressBar.Value = Math.Max(0, Math.Min(100, pct));
+                SetProgressPercentage(totalSteps > 0 ? (int)((stepIndex - 1) * 100.0 / totalSteps) : 0);
                 AppendLogLine(string.Format("=== [{0}/{1}] {2} ===", stepIndex, totalSteps, name));
 
                 if (_bannerForm != null && !_bannerForm.IsDisposed)
@@ -262,8 +352,7 @@ namespace TecnicoBrasfort.UI
         {
             SafeBeginInvoke(delegate()
             {
-                int pct = totalSteps > 0 ? (int)(stepIndex * 100.0 / totalSteps) : 100;
-                _progressBar.Value = Math.Max(0, Math.Min(100, pct));
+                SetProgressPercentage(totalSteps > 0 ? (int)(stepIndex * 100.0 / totalSteps) : 100);
                 if (result != null)
                 {
                     string status = result.Cancelled ? "CANCELADO" : (result.Success ? "OK" : "FALHA");
@@ -278,13 +367,14 @@ namespace TecnicoBrasfort.UI
             _stopwatch.Stop();
             _elapsedTimer.Stop();
 
-            _progressBar.Value = 100;
+            SetProgressPercentage(100);
             _lblStep.Text = "Execucao finalizada.";
             _btnMinimizeBg.Enabled = false;
             _btnCancel.Enabled = false;
             _btnCopySummary.Enabled = true;
             _btnOpenLogs.Enabled = true;
             _btnClose.Enabled = true;
+            _btnClose.BackColor = Color.White;
 
             bool rebootRequired = report != null && report.RebootRequired;
             _pnlReboot.Visible = true;
@@ -320,6 +410,23 @@ namespace TecnicoBrasfort.UI
             {
                 handler(this, EventArgs.Empty);
             }
+        }
+
+        private void SetProgressPercentage(int pct)
+        {
+            _progressPct = Math.Max(0, Math.Min(100, pct));
+            UpdateProgressVisual();
+        }
+
+        private void UpdateProgressVisual()
+        {
+            if (_pnlProgressTrack == null || _pnlProgressFill == null || _lblProgressPct == null)
+            {
+                return;
+            }
+            int fillWidth = (int)Math.Round(_pnlProgressTrack.ClientSize.Width * (_progressPct / 100.0));
+            _pnlProgressFill.Size = new Size(fillWidth, _pnlProgressTrack.ClientSize.Height);
+            _lblProgressPct.Text = string.Format("{0}%", _progressPct);
         }
 
         private void OnMinimizeBackgroundClick(object sender, EventArgs e)

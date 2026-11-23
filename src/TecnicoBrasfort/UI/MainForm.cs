@@ -11,6 +11,14 @@ namespace TecnicoBrasfort.UI
 {
     public class MainForm : Form
     {
+        private static readonly Color ColorDarkSlate = Color.FromArgb(48, 56, 65);      // #303841
+        private static readonly Color ColorDarkButton = Color.FromArgb(58, 67, 77);     // #3A434D
+        private static readonly Color ColorWarmBg = Color.FromArgb(239, 232, 221);      // #EFE8DD
+        private static readonly Color ColorTealAccent = Color.FromArgb(118, 171, 174);  // #76ABAE
+        private static readonly Color ColorOrangeCta = Color.FromArgb(255, 87, 34);     // #FF5722
+        private static readonly Color ColorCardBorder = Color.FromArgb(212, 204, 192);  // #D4CCC0
+        private static readonly Color ColorCatHeader = Color.FromArgb(30, 90, 145);
+
         private readonly EnvironmentInfo _env;
         private readonly BatchExecutionEngine _engine;
         private readonly NetworkModule _network;
@@ -20,10 +28,17 @@ namespace TecnicoBrasfort.UI
 
         private readonly Dictionary<string, CheckBox> _actionCheckBoxes;
         private readonly Dictionary<string, ActionDefinition> _actionsById;
+        private readonly List<Button> _comboButtons;
+        private readonly List<Panel> _categoryCards;
+        private readonly Panel _pnlCombos;
+        private readonly FlowLayoutPanel _flowCombos;
+        private readonly Panel _pnlActionsContainer;
         private readonly Label _lblSelectionCount;
         private readonly Button _btnExecute;
         private readonly Button _btnBackupDrivers;
 
+        private string _activeComboId;
+        private bool _suppressCheckChanged;
         private ExecutionProgressForm _activeProgressForm;
 
         public MainForm(
@@ -46,140 +61,41 @@ namespace TecnicoBrasfort.UI
 
             _actionCheckBoxes = new Dictionary<string, CheckBox>(StringComparer.OrdinalIgnoreCase);
             _actionsById = new Dictionary<string, ActionDefinition>(StringComparer.OrdinalIgnoreCase);
+            _comboButtons = new List<Button>();
+            _categoryCards = new List<Panel>();
+            _activeComboId = "";
 
             Text = "Tecnico Brasfort v2 - Painel de Suporte TI";
             MinimumSize = new Size(920, 660);
-            ClientSize = new Size(980, 700);
+            ClientSize = new Size(1060, 720);
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
+            BackColor = ColorWarmBg;
             Icon = SystemIcons.Shield;
 
-            // Zona 1: Cabecalho de Contexto
-            Panel pnlHeader = new Panel();
-            pnlHeader.Dock = DockStyle.Top;
-            pnlHeader.Height = _env.IsUncOrigin ? 76 : 54;
-            pnlHeader.BackColor = Color.FromArgb(240, 244, 248);
-            pnlHeader.Padding = new Padding(12, 8, 12, 8);
-            Controls.Add(pnlHeader);
-
-            Label lblContext = new Label();
-            lblContext.Text = string.Format(
-                "PC: {0}  |  SO: {1}  |  Admin: {2}  |  Usuario: {3}",
-                _env.Hostname,
-                _env.OsVersion,
-                _env.ElevatedAdmin,
-                string.IsNullOrEmpty(_env.InteractiveUser) ? "(nenhum)" : _env.InteractiveUser);
-            lblContext.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
-            lblContext.Location = new Point(12, 10);
-            lblContext.Size = new Size(940, 22);
-            lblContext.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            pnlHeader.Controls.Add(lblContext);
-
-            if (_env.IsUncOrigin)
-            {
-                Label lblUnc = new Label();
-                lblUnc.Text = "Origem: Rede (UNC) — " + _env.OriginDirectory;
-                lblUnc.ForeColor = Color.DarkSlateBlue;
-                lblUnc.Location = new Point(12, 38);
-                lblUnc.Size = new Size(940, 20);
-                lblUnc.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-                pnlHeader.Controls.Add(lblUnc);
-            }
-
-            // Zona 2: Barra dos 5 Combos + Limpar selecao
-            Panel pnlCombos = new Panel();
-            pnlCombos.Dock = DockStyle.Top;
-            pnlCombos.Height = 84;
-            pnlCombos.BackColor = Color.White;
-            pnlCombos.BorderStyle = BorderStyle.FixedSingle;
-            Controls.Add(pnlCombos);
-
-            Label lblCombosTitle = new Label();
-            lblCombosTitle.Text = "Combos rapidos (marcam automaticamente as acoes recomendadas):";
-            lblCombosTitle.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            lblCombosTitle.Location = new Point(12, 8);
-            lblCombosTitle.Size = new Size(500, 18);
-            pnlCombos.Controls.Add(lblCombosTitle);
-
-            FlowLayoutPanel flowCombos = new FlowLayoutPanel();
-            flowCombos.Location = new Point(10, 30);
-            flowCombos.Size = new Size(956, 46);
-            flowCombos.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            flowCombos.WrapContents = true;
-            pnlCombos.Controls.Add(flowCombos);
-
-            IList<ComboDefinition> combos = ActionCatalog.GetCombos();
-            for (int i = 0; i < combos.Count; i++)
-            {
-                ComboDefinition combo = combos[i];
-                Button btnCombo = new Button();
-                btnCombo.Text = combo.Name;
-                btnCombo.AutoSize = true;
-                btnCombo.Height = 30;
-                btnCombo.Padding = new Padding(6, 2, 6, 2);
-                btnCombo.Margin = new Padding(3);
-                btnCombo.Tag = combo;
-                btnCombo.Click += OnComboButtonClick;
-                flowCombos.Controls.Add(btnCombo);
-            }
-
-            Button btnClear = new Button();
-            btnClear.Text = "Limpar selecao";
-            btnClear.AutoSize = true;
-            btnClear.Height = 30;
-            btnClear.Padding = new Padding(6, 2, 6, 2);
-            btnClear.Margin = new Padding(10, 3, 3, 3);
-            btnClear.Click += OnClearSelectionClick;
-            flowCombos.Controls.Add(btnClear);
-
-            // Rodape
-            Panel pnlFooter = new Panel();
-            pnlFooter.Dock = DockStyle.Bottom;
-            pnlFooter.Height = 56;
-            pnlFooter.BackColor = Color.FromArgb(245, 245, 245);
-            pnlFooter.BorderStyle = BorderStyle.FixedSingle;
-            Controls.Add(pnlFooter);
-
-            _lblSelectionCount = new Label();
-            _lblSelectionCount.Text = "0 acao(oes) selecionada(s)";
-            _lblSelectionCount.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
-            _lblSelectionCount.Location = new Point(16, 17);
-            _lblSelectionCount.Size = new Size(340, 22);
-            pnlFooter.Controls.Add(_lblSelectionCount);
-
-            _btnExecute = new Button();
-            _btnExecute.Text = "Executar Selecionadas";
-            _btnExecute.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            _btnExecute.BackColor = Color.FromArgb(0, 102, 204);
-            _btnExecute.ForeColor = Color.White;
-            _btnExecute.FlatStyle = FlatStyle.Flat;
-            _btnExecute.Location = new Point(740, 10);
-            _btnExecute.Size = new Size(220, 34);
-            _btnExecute.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            _btnExecute.Click += OnExecuteSelectedClick;
-            pnlFooter.Controls.Add(_btnExecute);
-
-            // Zona 3: Painel principal (Acoes em lote a esquerda + Ferramentas Rapidas a direita)
+            // Painel lateral direito fixo: Ferramentas Rapidas (#303841)
             Panel pnlQuickTools = new Panel();
             pnlQuickTools.Dock = DockStyle.Right;
-            pnlQuickTools.Width = 250;
-            pnlQuickTools.BackColor = Color.FromArgb(250, 250, 252);
-            pnlQuickTools.BorderStyle = BorderStyle.FixedSingle;
+            pnlQuickTools.Width = 256;
+            pnlQuickTools.BackColor = ColorDarkSlate;
+            pnlQuickTools.Padding = new Padding(14, 12, 14, 12);
             Controls.Add(pnlQuickTools);
 
             Label lblQuickTitle = new Label();
             lblQuickTitle.Text = "Ferramentas Rapidas";
-            lblQuickTitle.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            lblQuickTitle.Location = new Point(12, 12);
-            lblQuickTitle.Size = new Size(224, 22);
+            lblQuickTitle.Font = new Font("Segoe UI", 10.5F, FontStyle.Bold);
+            lblQuickTitle.ForeColor = Color.White;
+            lblQuickTitle.Location = new Point(14, 14);
+            lblQuickTitle.Size = new Size(228, 22);
             pnlQuickTools.Controls.Add(lblQuickTitle);
 
             Label lblQuickSub = new Label();
             lblQuickSub.Text = "Executam imediatamente fora da fila:";
-            lblQuickSub.ForeColor = Color.DimGray;
-            lblQuickSub.Location = new Point(12, 36);
-            lblQuickSub.Size = new Size(224, 20);
+            lblQuickSub.ForeColor = Color.FromArgb(205, 212, 220);
+            lblQuickSub.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular);
+            lblQuickSub.Location = new Point(14, 38);
+            lblQuickSub.Size = new Size(228, 20);
             pnlQuickTools.Controls.Add(lblQuickSub);
 
             int quickY = 68;
@@ -198,86 +114,362 @@ namespace TecnicoBrasfort.UI
             });
             AddQuickToolButton(pnlQuickTools, "Ver Logs Locais deste PC", ref quickY, OnViewLogsClick);
 
-            Panel pnlActionsContainer = new Panel();
-            pnlActionsContainer.Dock = DockStyle.Fill;
-            pnlActionsContainer.AutoScroll = true;
-            pnlActionsContainer.BackColor = Color.White;
-            Controls.Add(pnlActionsContainer);
+            // Zona 1: Barra de telemetria ancorada no topo (#303841)
+            Panel pnlHeader = new Panel();
+            pnlHeader.Dock = DockStyle.Top;
+            pnlHeader.Height = _env.IsUncOrigin ? 58 : 38;
+            pnlHeader.BackColor = ColorDarkSlate;
+            Controls.Add(pnlHeader);
 
-            // Ordem de Dock no WinForms exige Fill por ultimo no Z-order (BringToFront)
-            pnlActionsContainer.BringToFront();
+            Label lblContext = new Label();
+            lblContext.Text = string.Format(
+                "PC: {0}  |  SO: {1}  |  Admin: {2}  |  Usuario: {3}",
+                _env.Hostname,
+                _env.OsVersion,
+                _env.ElevatedAdmin,
+                string.IsNullOrEmpty(_env.InteractiveUser) ? "(nenhum)" : _env.InteractiveUser);
+            lblContext.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            lblContext.ForeColor = Color.White;
+            lblContext.Location = new Point(14, 9);
+            lblContext.Size = new Size(760, 20);
+            lblContext.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            pnlHeader.Controls.Add(lblContext);
 
-            PopulateBatchActions(pnlActionsContainer);
+            if (_env.IsUncOrigin)
+            {
+                Label lblUnc = new Label();
+                lblUnc.Text = "Origem: Rede (UNC) — " + _env.OriginDirectory;
+                lblUnc.ForeColor = ColorTealAccent;
+                lblUnc.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular);
+                lblUnc.Location = new Point(14, 32);
+                lblUnc.Size = new Size(760, 18);
+                lblUnc.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+                pnlHeader.Controls.Add(lblUnc);
+            }
+
+            // Zona 2: Barra de Combos Rapidos com wrap automatico sem corte vertical
+            _pnlCombos = new Panel();
+            _pnlCombos.Dock = DockStyle.Top;
+            _pnlCombos.Height = 96;
+            _pnlCombos.BackColor = ColorWarmBg;
+            Controls.Add(_pnlCombos);
+
+            Label lblCombosTitle = new Label();
+            lblCombosTitle.Text = "Combos rapidos (marcam automaticamente as acoes recomendadas):";
+            lblCombosTitle.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            lblCombosTitle.ForeColor = ColorDarkSlate;
+            lblCombosTitle.Location = new Point(14, 8);
+            lblCombosTitle.Size = new Size(600, 18);
+            _pnlCombos.Controls.Add(lblCombosTitle);
+
+            _flowCombos = new FlowLayoutPanel();
+            _flowCombos.Location = new Point(11, 28);
+            _flowCombos.Size = new Size(760, 56);
+            _flowCombos.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            _flowCombos.WrapContents = true;
+            _flowCombos.AutoSize = false;
+            _pnlCombos.Controls.Add(_flowCombos);
+
+            IList<ComboDefinition> combos = ActionCatalog.GetCombos();
+            for (int i = 0; i < combos.Count; i++)
+            {
+                ComboDefinition combo = combos[i];
+                Button btnCombo = CreatePillButton(combo.Name, false);
+                btnCombo.Tag = combo;
+                btnCombo.Click += OnComboButtonClick;
+                _flowCombos.Controls.Add(btnCombo);
+                _comboButtons.Add(btnCombo);
+            }
+
+            Button btnClear = CreatePillButton("Limpar selecao", false);
+            btnClear.Margin = new Padding(10, 3, 3, 4);
+            btnClear.Click += OnClearSelectionClick;
+            _flowCombos.Controls.Add(btnClear);
+
+            // Rodape fixo (#EFE8DD) com CTA em #FF5722
+            Panel pnlFooter = new Panel();
+            pnlFooter.Dock = DockStyle.Bottom;
+            pnlFooter.Height = 56;
+            pnlFooter.BackColor = ColorWarmBg;
+            Controls.Add(pnlFooter);
+
+            Panel pnlFooterLine = new Panel();
+            pnlFooterLine.Dock = DockStyle.Top;
+            pnlFooterLine.Height = 1;
+            pnlFooterLine.BackColor = ColorCardBorder;
+            pnlFooter.Controls.Add(pnlFooterLine);
+
+            _lblSelectionCount = new Label();
+            _lblSelectionCount.Text = "0 acao(oes) selecionada(s)";
+            _lblSelectionCount.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            _lblSelectionCount.ForeColor = ColorDarkSlate;
+            _lblSelectionCount.Location = new Point(16, 17);
+            _lblSelectionCount.Size = new Size(340, 22);
+            pnlFooter.Controls.Add(_lblSelectionCount);
+
+            _btnExecute = new Button();
+            _btnExecute.Text = "Executar Selecionadas";
+            _btnExecute.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            _btnExecute.BackColor = ColorOrangeCta;
+            _btnExecute.ForeColor = Color.White;
+            _btnExecute.FlatStyle = FlatStyle.Flat;
+            _btnExecute.FlatAppearance.BorderSize = 0;
+            _btnExecute.Cursor = Cursors.Hand;
+            _btnExecute.Location = new Point(540, 10);
+            _btnExecute.Size = new Size(220, 36);
+            _btnExecute.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _btnExecute.Click += OnExecuteSelectedClick;
+            pnlFooter.Controls.Add(_btnExecute);
+
+            // Zona 3: Container de Cards responsivos (1 coluna no compacto / Grid 2 colunas no widescreen)
+            _pnlActionsContainer = new Panel();
+            _pnlActionsContainer.Dock = DockStyle.Fill;
+            _pnlActionsContainer.AutoScroll = true;
+            _pnlActionsContainer.BackColor = ColorWarmBg;
+            Controls.Add(_pnlActionsContainer);
+
+            // Z-order Dock: header/combos/footer/right antes, Fill com BringToFront
+            pnlQuickTools.SendToBack();
+            pnlHeader.SendToBack();
+            _pnlActionsContainer.BringToFront();
+
+            BuildCategoryCards();
+
+            _pnlCombos.SizeChanged += delegate(object s, EventArgs e) { UpdateCombosBarHeight(); };
+            _pnlActionsContainer.SizeChanged += delegate(object s, EventArgs e) { LayoutCategoryCards(); };
+            Shown += delegate(object s, EventArgs e)
+            {
+                UpdateCombosBarHeight();
+                LayoutCategoryCards();
+            };
+
+            UpdateCombosBarHeight();
+            LayoutCategoryCards();
             UpdateSelectionCount();
         }
 
-        private void PopulateBatchActions(Panel container)
+        private void BuildCategoryCards()
         {
             IList<ActionDefinition> actions = ActionCatalog.GetBatchableActions();
-            string currentCategory = "";
-            int y = 12;
+            List<string> categoryOrder = new List<string>();
+            Dictionary<string, List<ActionDefinition>> grouped = new Dictionary<string, List<ActionDefinition>>(StringComparer.OrdinalIgnoreCase);
 
             for (int i = 0; i < actions.Count; i++)
             {
-                ActionDefinition action = actions[i];
-                _actionsById[action.Id] = action;
-
-                if (!string.Equals(currentCategory, action.Category, StringComparison.OrdinalIgnoreCase))
+                ActionDefinition a = actions[i];
+                _actionsById[a.Id] = a;
+                if (!grouped.ContainsKey(a.Category))
                 {
-                    currentCategory = action.Category;
-                    Label lblCat = new Label();
-                    lblCat.Text = currentCategory.ToUpperInvariant();
-                    lblCat.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-                    lblCat.ForeColor = Color.FromArgb(0, 78, 152);
-                    lblCat.Location = new Point(14, y);
-                    lblCat.Size = new Size(660, 20);
-                    container.Controls.Add(lblCat);
-                    y += 24;
+                    grouped[a.Category] = new List<ActionDefinition>();
+                    categoryOrder.Add(a.Category);
+                }
+                grouped[a.Category].Add(a);
+            }
+
+            for (int c = 0; c < categoryOrder.Count; c++)
+            {
+                string catName = categoryOrder[c];
+                List<ActionDefinition> catActions = grouped[catName];
+
+                Panel card = new Panel();
+                card.BackColor = Color.White;
+                card.BorderStyle = BorderStyle.FixedSingle;
+                card.Padding = new Padding(12, 10, 12, 10);
+
+                Label lblCat = new Label();
+                lblCat.Text = catName.ToUpperInvariant();
+                lblCat.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+                lblCat.ForeColor = ColorCatHeader;
+                lblCat.Location = new Point(12, 10);
+                lblCat.Size = new Size(300, 20);
+                card.Controls.Add(lblCat);
+
+                int y = 34;
+                for (int j = 0; j < catActions.Count; j++)
+                {
+                    ActionDefinition action = catActions[j];
+
+                    Panel row = new Panel();
+                    row.Location = new Point(10, y);
+                    row.Size = new Size(460, 28);
+                    row.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+                    row.BackColor = Color.White;
+
+                    Button btnHelp = new Button();
+                    btnHelp.Text = "?";
+                    btnHelp.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+                    btnHelp.FlatStyle = FlatStyle.Flat;
+                    btnHelp.FlatAppearance.BorderColor = ColorCardBorder;
+                    btnHelp.BackColor = Color.FromArgb(248, 248, 248);
+                    btnHelp.ForeColor = ColorDarkSlate;
+                    btnHelp.Size = new Size(26, 22);
+                    btnHelp.Location = new Point(row.Width - 28, 3);
+                    btnHelp.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                    btnHelp.Cursor = Cursors.Hand;
+                    btnHelp.Tag = action;
+                    btnHelp.Click += OnActionHelpClick;
+                    row.Controls.Add(btnHelp);
+
+                    int rightCursor = btnHelp.Left - 6;
+                    if (action.RequiresReboot)
+                    {
+                        Label badge = CreateBadge("Reboot", Color.DarkOrange);
+                        badge.Location = new Point(rightCursor - badge.Width, 5);
+                        badge.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                        row.Controls.Add(badge);
+                        rightCursor = badge.Left - 4;
+                    }
+                    else if (action.IsDestructive && !action.DropsRemoteAccess)
+                    {
+                        Label badge = CreateBadge("Destrutiva", Color.Maroon);
+                        badge.Location = new Point(rightCursor - badge.Width, 5);
+                        badge.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                        row.Controls.Add(badge);
+                        rightCursor = badge.Left - 4;
+                    }
+
+                    if (action.DropsRemoteAccess)
+                    {
+                        Label badge = CreateBadge("Remoto!", Color.Firebrick);
+                        badge.Location = new Point(rightCursor - badge.Width, 5);
+                        badge.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                        row.Controls.Add(badge);
+                        rightCursor = badge.Left - 4;
+                    }
+
+                    CheckBox chk = new CheckBox();
+                    chk.Text = action.Name;
+                    chk.Location = new Point(4, 2);
+                    chk.Size = new Size(Math.Max(180, rightCursor - 8), 24);
+                    chk.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+                    chk.ForeColor = ColorDarkSlate;
+                    chk.Tag = action;
+                    chk.CheckedChanged += OnActionCheckChanged;
+                    row.Controls.Add(chk);
+                    _actionCheckBoxes[action.Id] = chk;
+
+                    card.Controls.Add(row);
+                    y += 28;
                 }
 
-                CheckBox chk = new CheckBox();
-                chk.Text = action.Name;
-                chk.Location = new Point(22, y);
-                chk.Size = new Size(440, 24);
-                chk.Tag = action;
-                chk.CheckedChanged += delegate(object s, EventArgs e)
-                {
-                    UpdateSelectionCount();
-                };
-                container.Controls.Add(chk);
-                _actionCheckBoxes[action.Id] = chk;
-
-                int badgeX = 468;
-                if (action.DropsRemoteAccess)
-                {
-                    AddBadge(container, "Remoto!", Color.Firebrick, badgeX, y + 2);
-                    badgeX += 64;
-                }
-                if (action.RequiresReboot)
-                {
-                    AddBadge(container, "Reboot", Color.DarkOrange, badgeX, y + 2);
-                    badgeX += 56;
-                }
-                else if (action.IsDestructive)
-                {
-                    AddBadge(container, "Destrutiva", Color.Maroon, badgeX, y + 2);
-                    badgeX += 72;
-                }
-
-                Button btnHelp = new Button();
-                btnHelp.Text = "?";
-                btnHelp.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
-                btnHelp.Location = new Point(650, y);
-                btnHelp.Size = new Size(28, 23);
-                btnHelp.Tag = action;
-                btnHelp.Click += OnActionHelpClick;
-                container.Controls.Add(btnHelp);
-
-                y += 28;
+                card.Height = y + 10;
+                _categoryCards.Add(card);
+                _pnlActionsContainer.Controls.Add(card);
             }
         }
 
-        private static void AddBadge(Panel container, string text, Color color, int x, int y)
+        private void LayoutCategoryCards()
+        {
+            if (_pnlActionsContainer == null || _categoryCards.Count == 0)
+            {
+                return;
+            }
+
+            int availWidth = _pnlActionsContainer.ClientSize.Width;
+            if (availWidth <= 0)
+            {
+                return;
+            }
+
+            _pnlActionsContainer.SuspendLayout();
+
+            const int marginX = 14;
+            const int gapX = 14;
+            const int gapY = 12;
+
+            bool useTwoColumns = availWidth >= 820;
+            if (useTwoColumns)
+            {
+                int colWidth = (availWidth - (marginX * 2) - gapX) / 2;
+                int[] colY = new int[] { 8, 8 };
+
+                for (int i = 0; i < _categoryCards.Count; i++)
+                {
+                    int col = colY[0] <= colY[1] ? 0 : 1;
+                    Panel card = _categoryCards[i];
+                    int x = marginX + (col * (colWidth + gapX));
+                    card.Location = new Point(x, colY[col]);
+                    card.Width = colWidth;
+                    colY[col] += card.Height + gapY;
+                }
+            }
+            else
+            {
+                int colWidth = Math.Max(360, availWidth - (marginX * 2));
+                int y = 8;
+                for (int i = 0; i < _categoryCards.Count; i++)
+                {
+                    Panel card = _categoryCards[i];
+                    card.Location = new Point(marginX, y);
+                    card.Width = colWidth;
+                    y += card.Height + gapY;
+                }
+            }
+
+            _pnlActionsContainer.ResumeLayout(true);
+        }
+
+        private void UpdateCombosBarHeight()
+        {
+            if (_pnlCombos == null || _flowCombos == null)
+            {
+                return;
+            }
+
+            int targetWidth = Math.Max(200, _pnlCombos.ClientSize.Width - 22);
+            _flowCombos.Width = targetWidth;
+            Size preferred = _flowCombos.GetPreferredSize(new Size(targetWidth, 0));
+            int flowHeight = Math.Max(36, preferred.Height + 4);
+            _flowCombos.Height = flowHeight;
+            _pnlCombos.Height = flowHeight + 36;
+        }
+
+        private static Button CreatePillButton(string text, bool isActive)
+        {
+            Button btn = new Button();
+            btn.Text = text;
+            btn.AutoSize = true;
+            btn.MinimumSize = new Size(0, 30);
+            btn.Padding = new Padding(10, 4, 10, 4);
+            btn.Margin = new Padding(3, 3, 5, 4);
+            btn.FlatStyle = FlatStyle.Flat;
+            btn.Cursor = Cursors.Hand;
+            ApplyComboButtonStyle(btn, isActive);
+            return btn;
+        }
+
+        private static void ApplyComboButtonStyle(Button btn, bool isActive)
+        {
+            if (isActive)
+            {
+                btn.BackColor = ColorTealAccent;
+                btn.ForeColor = Color.White;
+                btn.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+                btn.FlatAppearance.BorderColor = ColorTealAccent;
+                btn.FlatAppearance.BorderSize = 1;
+            }
+            else
+            {
+                btn.BackColor = Color.White;
+                btn.ForeColor = ColorDarkSlate;
+                btn.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+                btn.FlatAppearance.BorderColor = ColorCardBorder;
+                btn.FlatAppearance.BorderSize = 1;
+            }
+        }
+
+        private void RefreshComboHighlights()
+        {
+            for (int i = 0; i < _comboButtons.Count; i++)
+            {
+                Button btn = _comboButtons[i];
+                ComboDefinition combo = btn.Tag as ComboDefinition;
+                bool active = combo != null && string.Equals(combo.Id, _activeComboId, StringComparison.OrdinalIgnoreCase);
+                ApplyComboButtonStyle(btn, active);
+            }
+        }
+
+        private static Label CreateBadge(string text, Color color)
         {
             Label lbl = new Label();
             lbl.Text = text;
@@ -285,22 +477,27 @@ namespace TecnicoBrasfort.UI
             lbl.ForeColor = Color.White;
             lbl.BackColor = color;
             lbl.TextAlign = ContentAlignment.MiddleCenter;
-            lbl.Location = new Point(x, y);
-            lbl.Size = new Size(text.Length * 7 + 10, 18);
-            container.Controls.Add(lbl);
+            lbl.Size = new Size(text.Length * 7 + 12, 18);
+            return lbl;
         }
 
         private static Button AddQuickToolButton(Panel parent, string text, ref int y, EventHandler onClick)
         {
             Button btn = new Button();
             btn.Text = text;
-            btn.Location = new Point(12, y);
-            btn.Size = new Size(224, 34);
+            btn.Location = new Point(14, y);
+            btn.Size = new Size(228, 36);
             btn.TextAlign = ContentAlignment.MiddleLeft;
-            btn.Padding = new Padding(6, 0, 0, 0);
+            btn.Padding = new Padding(10, 0, 0, 0);
+            btn.FlatStyle = FlatStyle.Flat;
+            btn.BackColor = ColorDarkButton;
+            btn.ForeColor = Color.White;
+            btn.FlatAppearance.BorderColor = Color.FromArgb(90, 105, 118);
+            btn.FlatAppearance.BorderSize = 1;
+            btn.Cursor = Cursors.Hand;
             btn.Click += onClick;
             parent.Controls.Add(btn);
-            y += 42;
+            y += 44;
             return btn;
         }
 
@@ -313,19 +510,51 @@ namespace TecnicoBrasfort.UI
                 return;
             }
 
-            HashSet<string> targetIds = new HashSet<string>(combo.ActionIds, StringComparer.OrdinalIgnoreCase);
-            foreach (KeyValuePair<string, CheckBox> kvp in _actionCheckBoxes)
+            _suppressCheckChanged = true;
+            try
             {
-                kvp.Value.Checked = targetIds.Contains(kvp.Key);
+                HashSet<string> targetIds = new HashSet<string>(combo.ActionIds, StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, CheckBox> kvp in _actionCheckBoxes)
+                {
+                    kvp.Value.Checked = targetIds.Contains(kvp.Key);
+                }
+                _activeComboId = combo.Id;
+                RefreshComboHighlights();
             }
+            finally
+            {
+                _suppressCheckChanged = false;
+            }
+
             UpdateSelectionCount();
         }
 
         private void OnClearSelectionClick(object sender, EventArgs e)
         {
-            foreach (KeyValuePair<string, CheckBox> kvp in _actionCheckBoxes)
+            _suppressCheckChanged = true;
+            try
             {
-                kvp.Value.Checked = false;
+                foreach (KeyValuePair<string, CheckBox> kvp in _actionCheckBoxes)
+                {
+                    kvp.Value.Checked = false;
+                }
+                _activeComboId = "";
+                RefreshComboHighlights();
+            }
+            finally
+            {
+                _suppressCheckChanged = false;
+            }
+
+            UpdateSelectionCount();
+        }
+
+        private void OnActionCheckChanged(object sender, EventArgs e)
+        {
+            if (!_suppressCheckChanged && !string.IsNullOrEmpty(_activeComboId))
+            {
+                _activeComboId = "";
+                RefreshComboHighlights();
             }
             UpdateSelectionCount();
         }
@@ -477,6 +706,7 @@ namespace TecnicoBrasfort.UI
                 logForm.Size = new Size(820, 520);
                 logForm.StartPosition = FormStartPosition.CenterParent;
                 logForm.AutoScaleMode = AutoScaleMode.Font;
+                logForm.BackColor = ColorWarmBg;
 
                 TextBox txt = new TextBox();
                 txt.Multiline = true;
@@ -484,6 +714,8 @@ namespace TecnicoBrasfort.UI
                 txt.ScrollBars = ScrollBars.Both;
                 txt.WordWrap = false;
                 txt.Font = new Font("Consolas", 9F, FontStyle.Regular);
+                txt.BackColor = ColorDarkSlate;
+                txt.ForeColor = Color.FromArgb(242, 242, 242);
                 txt.Dock = DockStyle.Fill;
                 txt.Text = lines.Count == 0
                     ? "Nenhum registro encontrado para este computador em ProgramData."
