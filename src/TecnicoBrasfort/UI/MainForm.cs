@@ -203,8 +203,9 @@ namespace TecnicoBrasfort.UI
             _lblSelectionCount.Text = "0 acao(oes) selecionada(s)";
             _lblSelectionCount.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
             _lblSelectionCount.ForeColor = ColorDarkSlate;
-            _lblSelectionCount.Location = new Point(16, 17);
-            _lblSelectionCount.Size = new Size(340, 22);
+            _lblSelectionCount.BackColor = Color.Transparent;
+            _lblSelectionCount.AutoSize = true;
+            _lblSelectionCount.Location = new Point(16, 18);
             pnlFooter.Controls.Add(_lblSelectionCount);
 
             _btnExecute = new Button();
@@ -215,11 +216,16 @@ namespace TecnicoBrasfort.UI
             _btnExecute.FlatStyle = FlatStyle.Flat;
             _btnExecute.FlatAppearance.BorderSize = 0;
             _btnExecute.Cursor = Cursors.Hand;
-            _btnExecute.Location = new Point(540, 10);
             _btnExecute.Size = new Size(220, 36);
+            _btnExecute.Location = new Point(Math.Max(220, pnlFooter.ClientSize.Width - _btnExecute.Width - 16), 10);
             _btnExecute.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             _btnExecute.Click += OnExecuteSelectedClick;
             pnlFooter.Controls.Add(_btnExecute);
+
+            pnlFooter.SizeChanged += delegate(object s, EventArgs e)
+            {
+                _btnExecute.Location = new Point(Math.Max(220, pnlFooter.ClientSize.Width - _btnExecute.Width - 16), 10);
+            };
 
             // Zona 3: Container de Cards responsivos (1 coluna no compacto / Grid 2 colunas no widescreen)
             _pnlActionsContainer = new Panel();
