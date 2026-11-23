@@ -5,5 +5,9 @@
     "8.8.8.8"
   ],
   "ExchangeCheckUrl": "https://mail.example.local/owa",
-  "LogDirectoryOverride": ""
+  "LogDirectoryOverride": "",
+  "RequireAccessPassword": false,
+  "AccessSaltBase64": "",
+  "AccessHashBase64": "",
+  "AccessIterations": 100000
 }

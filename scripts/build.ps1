@@ -33,13 +33,15 @@ $BclRefs = @(
     "/r:System.Runtime.Serialization.dll",
     "/r:System.Xml.dll",
     "/r:System.ServiceProcess.dll",
-    "/r:System.Net.Http.dll"
+    "/r:System.Net.Http.dll",
+    "/r:System.Windows.Forms.dll",
+    "/r:System.Drawing.dll"
 )
 
 $ExeOut = Join-Path $DistDir "TecnicoBrasfort.exe"
 $CscArgs = @(
     "/nologo",
-    "/target:exe",
+    "/target:winexe",
     "/optimize+",
     "/warnaserror+",
     "/win32manifest:$ManifestPath",
@@ -76,7 +78,7 @@ if ($RunTests) {
     }
 
     $AppSourcesWithoutProgram = Get-ChildItem -Path $SrcDir -Filter "*.cs" -Recurse |
-        Where-Object { $_.Name -ne "Program.cs" } |
+        Where-Object { $_.Name -ne "Program.cs" -and $_.Directory.Name -ne "UI" } |
         ForEach-Object { $_.FullName }
 
     $TestSourcePaths = $TestFiles | ForEach-Object { $_.FullName }
