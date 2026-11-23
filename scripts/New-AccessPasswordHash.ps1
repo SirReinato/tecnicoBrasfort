@@ -16,7 +16,7 @@ if (-not (Test-Path $ExePath)) {
     }
 }
 
-Add-Type -Path $ExePath
+[void][System.Reflection.Assembly]::LoadFrom($ExePath)
 
 $AccessGateType = [AppDomain]::CurrentDomain.GetAssemblies() |
     ForEach-Object { $_.GetType("TecnicoBrasfort.Core.AccessGate", $false) } |

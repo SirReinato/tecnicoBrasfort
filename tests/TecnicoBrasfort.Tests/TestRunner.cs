@@ -193,6 +193,34 @@ namespace TecnicoBrasfort.Tests
         }
     }
 
+    public class FakeExecutionObserver : IExecutionObserver
+    {
+        public readonly List<string> Outputs = new List<string>();
+        public readonly List<string> Errors = new List<string>();
+        public readonly List<ActionDefinition> StartedActions = new List<ActionDefinition>();
+        public readonly List<ActionExecutionResult> CompletedResults = new List<ActionExecutionResult>();
+
+        public void OnOutput(string line)
+        {
+            Outputs.Add(line);
+        }
+
+        public void OnError(string line)
+        {
+            Errors.Add(line);
+        }
+
+        public void OnStepStarted(int stepIndex, int totalSteps, ActionDefinition action)
+        {
+            StartedActions.Add(action);
+        }
+
+        public void OnStepCompleted(int stepIndex, int totalSteps, ActionExecutionResult result)
+        {
+            CompletedResults.Add(result);
+        }
+    }
+
     public static class TestRunner
     {
         private static int _passed = 0;
@@ -204,6 +232,7 @@ namespace TecnicoBrasfort.Tests
 
             CoreTests.Register(RunTest);
             ModulesTests.Register(RunTest);
+            V2CoreTests.Register(RunTest);
 
             Console.WriteLine(string.Format("\nResumo: {0} passou(aram), {1} falhou(aram).", _passed, _failed));
             return _failed == 0 ? 0 : 1;

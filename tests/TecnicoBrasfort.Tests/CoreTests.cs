@@ -13,6 +13,7 @@ namespace TecnicoBrasfort.Tests
             run("ConfigLoader_ReturnsGenericDefaultsWhenMissing", ConfigLoader_ReturnsGenericDefaultsWhenMissing);
             run("ConfigLoader_ParsesValidJsonAndNormalizes", ConfigLoader_ParsesValidJsonAndNormalizes);
             run("AuditLogger_SanitizesTechAdminAndHandlesSecondaryFailure", AuditLogger_SanitizesTechAdminAndHandlesSecondaryFailure);
+            run("AuditLogger_SaveTicketSummary_WritesPrimaryAndNotifiesSecondaryError", AuditLogger_SaveTicketSummary_WritesPrimaryAndNotifiesSecondaryError);
             run("HostEnvironment_FormatsPrinterConnectionName", HostEnvironment_FormatsPrinterConnectionName);
         }
 
@@ -80,6 +81,28 @@ namespace TecnicoBrasfort.Tests
         private static void HostEnvironment_FormatsPrinterConnectionName()
         {
             Assert.Equal(@"\\print01\HP_Financeiro", HostEnvironmentAdapter.FormatPrinterConnectionName(",,print01,HP_Financeiro"));
+        }
+
+        private static void AuditLogger_SaveTicketSummary_WritesPrimaryAndNotifiesSecondaryError()
+        {
+            FakeHostEnvironment host = new FakeHostEnvironment();
+            host.ThrowOnDirectoryPrefix = @"C:\BlockedDesktop";
+            FakeExecutionObserver observer = new FakeExecutionObserver();
+
+            EnvironmentInfo env = new EnvironmentInfo();
+            env.Hostname = "PC-FECHAMENTO";
+            env.ElevatedAdmin = @"CORP\admin";
+
+            AuditLogger logger = new AuditLogger(host, env, @"C:\PrimaryLogs", @"C:\BlockedDesktop\Logs");
+            logger.Observer = observer;
+
+            DateTime stamp = new DateTime(2026, 11, 23, 14, 30, 0);
+            string savedPath = logger.SaveTicketSummary("RESUMO TESTE", stamp);
+
+            Assert.True(savedPath.Contains("Fechamento_PC-FECHAMENTO_2026-11-23_143000.txt"), "Caminho primario esperado.");
+            Assert.True(host.Files.ContainsKey(savedPath), "Arquivo primario deve ser gravado.");
+            Assert.Equal("RESUMO TESTE", host.Files[savedPath]);
+            Assert.Equal(1, observer.Errors.Count);
         }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using TecnicoBrasfort.Core;
 using TecnicoBrasfort.Modules;
 
@@ -10,7 +11,9 @@ namespace TecnicoBrasfort.Tests
         public static void Register(Action<string, Action> run)
         {
             run("NetworkModule_ResetNetwork_RunsCommandsInCorrectOrder", NetworkModule_ResetNetwork_RunsCommandsInCorrectOrder);
+            run("NetworkModule_ResetNetwork_ObserverAndRebootRequired", NetworkModule_ResetNetwork_ObserverAndRebootRequired);
             run("MaintenanceModule_BootSchedule_UsesChkntfsWithoutStdinDeadlock", MaintenanceModule_BootSchedule_UsesChkntfsWithoutStdinDeadlock);
+            run("MaintenanceModule_CheckDiskC_ReturnsRebootRequiredOnlyOnBootSchedule", MaintenanceModule_CheckDiskC_ReturnsRebootRequiredOnlyOnBootSchedule);
             run("DriversUpdatesModule_BackupDrivers_RejectsWhenFreeSpaceBelow5Gb", DriversUpdatesModule_BackupDrivers_RejectsWhenFreeSpaceBelow5Gb);
             run("DriversUpdatesModule_BackupDrivers_RunsPnputilWhenSpaceSufficient", DriversUpdatesModule_BackupDrivers_RunsPnputilWhenSpaceSufficient);
             run("ActiveDirectoryModule_TryParseW32TmOffsetSeconds_ParsesOffsets", ActiveDirectoryModule_TryParseW32TmOffsetSeconds_ParsesOffsets);
@@ -109,6 +112,42 @@ namespace TecnicoBrasfort.Tests
             bool ok2 = ActiveDirectoryModule.TryParseW32TmOffsetSeconds("10:42:01, -315.50s\r\n", out offset);
             Assert.True(ok2, "Deve parsear offset negativo.");
             Assert.True(Math.Abs(offset) > ActiveDirectoryModule.MaxKerberosSkewSeconds, "Deve detectar desvio > 300s.");
+        }
+
+        private static void NetworkModule_ResetNetwork_ObserverAndRebootRequired()
+        {
+            FakeProcessRunner runner = new FakeProcessRunner();
+            FakeHostEnvironment host = new FakeHostEnvironment();
+            FakeExecutionObserver observer = new FakeExecutionObserver();
+            EnvironmentInfo env = CreateTestEnv();
+            AppConfig cfg = new AppConfig();
+            AuditLogger logger = new AuditLogger(host, env, @"C:\LogsP", @"C:\LogsS");
+
+            NetworkModule net = new NetworkModule(runner, logger, env, cfg);
+            ActionExecutionResult res = net.ResetNetwork(observer, CancellationToken.None);
+
+            Assert.True(res.Success, "ResetNetwork deve concluir com sucesso.");
+            Assert.True(res.RebootRequired, "ResetNetwork deve sinalizar RebootRequired.");
+            Assert.True(observer.Outputs.Count > 0, "Observer deve receber linhas de saida.");
+        }
+
+        private static void MaintenanceModule_CheckDiskC_ReturnsRebootRequiredOnlyOnBootSchedule()
+        {
+            FakeProcessRunner runner = new FakeProcessRunner();
+            FakeHostEnvironment host = new FakeHostEnvironment();
+            FakeExecutionObserver observer = new FakeExecutionObserver();
+            EnvironmentInfo env = CreateTestEnv();
+            AuditLogger logger = new AuditLogger(host, env, @"C:\LogsP", @"C:\LogsS");
+
+            MaintenanceModule maint = new MaintenanceModule(runner, host, logger, env);
+
+            ActionExecutionResult roRes = maint.CheckDiskC(false, observer, CancellationToken.None);
+            Assert.True(roRes.Success, "Verificacao somente leitura deve ter sucesso.");
+            Assert.True(!roRes.RebootRequired, "Verificacao somente leitura nao deve exigir reboot.");
+
+            ActionExecutionResult bootRes = maint.CheckDiskC(true, observer, CancellationToken.None);
+            Assert.True(bootRes.Success, "Agendamento no boot deve ter sucesso.");
+            Assert.True(bootRes.RebootRequired, "Agendamento no boot deve exigir reboot.");
         }
     }
 }
