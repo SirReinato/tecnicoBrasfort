@@ -110,6 +110,15 @@ namespace TecnicoBrasfort.UI
             _notifyIcon.Text = "Tecnico Brasfort - Concluido";
         }
 
+        public void ForceClose()
+        {
+            _isRunning = false;
+            if (!IsDisposed)
+            {
+                Close();
+            }
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (_isRunning && e.CloseReason == CloseReason.UserClosing)

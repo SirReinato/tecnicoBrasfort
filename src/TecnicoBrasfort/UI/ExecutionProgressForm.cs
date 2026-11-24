@@ -39,11 +39,13 @@ namespace TecnicoBrasfort.UI
         private readonly Button _btnCopySummary;
         private readonly Button _btnOpenLogs;
         private readonly Button _btnClose;
+        private readonly Button _btnUnattended;
+        private readonly Label _lblUnattendedActive;
+        private readonly UnattendedSessionState _sessionState;
 
         private BackgroundStatusBannerForm _bannerForm;
         private ActionDefinition _currentAction;
         private int _progressPct;
-        private bool _isRunning;
         private bool _isBackgroundMode;
 
         public event EventHandler ExecutionFinished;
@@ -63,13 +65,13 @@ namespace TecnicoBrasfort.UI
             _promoteToPrimary = promoteToPrimary;
             _cts = new CancellationTokenSource();
             _stopwatch = new Stopwatch();
+            _sessionState = new UnattendedSessionState();
             _progressPct = 0;
-            _isRunning = false;
             _isBackgroundMode = false;
 
             Text = "Tecnico Brasfort - Execucao em Andamento";
             FormBorderStyle = FormBorderStyle.Sizable;
-            MinimumSize = new Size(720, 560);
+            MinimumSize = new Size(780, 560);
             ClientSize = new Size(800, 610);
             StartPosition = FormStartPosition.CenterParent;
             AutoScaleMode = AutoScaleMode.Font;
@@ -90,9 +92,36 @@ namespace TecnicoBrasfort.UI
             _lblStep.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
             _lblStep.ForeColor = Color.White;
             _lblStep.Location = new Point(16, 12);
-            _lblStep.Size = new Size(610, 26);
+            _lblStep.Size = new Size(432, 26);
+            _lblStep.AutoEllipsis = true;
             _lblStep.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             pnlHeader.Controls.Add(_lblStep);
+
+            _btnUnattended = new Button();
+            _btnUnattended.Text = "Tecnico Ausente";
+            _btnUnattended.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            _btnUnattended.Location = new Point(456, 12);
+            _btnUnattended.Size = new Size(180, 26);
+            _btnUnattended.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _btnUnattended.FlatStyle = FlatStyle.Flat;
+            _btnUnattended.BackColor = Color.FromArgb(58, 67, 77);
+            _btnUnattended.ForeColor = Color.White;
+            _btnUnattended.FlatAppearance.BorderColor = ColorTealAccent;
+            _btnUnattended.Cursor = Cursors.Hand;
+            _btnUnattended.Click += OnUnattendedClick;
+            pnlHeader.Controls.Add(_btnUnattended);
+
+            _lblUnattendedActive = new Label();
+            _lblUnattendedActive.Text = "Tecnico Ausente: ATIVO";
+            _lblUnattendedActive.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            _lblUnattendedActive.BackColor = ColorOrangeCta;
+            _lblUnattendedActive.ForeColor = Color.White;
+            _lblUnattendedActive.TextAlign = ContentAlignment.MiddleCenter;
+            _lblUnattendedActive.Location = new Point(456, 12);
+            _lblUnattendedActive.Size = new Size(180, 26);
+            _lblUnattendedActive.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _lblUnattendedActive.Visible = false;
+            pnlHeader.Controls.Add(_lblUnattendedActive);
 
             _lblElapsed = new Label();
             _lblElapsed.Text = "Tempo: 00:00";
@@ -286,12 +315,12 @@ namespace TecnicoBrasfort.UI
 
         public void StartExecution()
         {
-            if (_isRunning)
+            if (_sessionState.IsRunning)
             {
                 return;
             }
 
-            _isRunning = true;
+            _sessionState.Start();
             _stopwatch.Restart();
             _elapsedTimer.Start();
 
@@ -366,7 +395,7 @@ namespace TecnicoBrasfort.UI
 
         private void OnBatchCompleted(BatchExecutionReport report)
         {
-            _isRunning = false;
+            _sessionState.Complete();
             _stopwatch.Stop();
             _elapsedTimer.Stop();
 
@@ -374,6 +403,7 @@ namespace TecnicoBrasfort.UI
             _lblStep.Text = "Execucao finalizada.";
             _btnMinimizeBg.Enabled = false;
             _btnCancel.Enabled = false;
+            _btnUnattended.Enabled = false;
             _btnCopySummary.Enabled = true;
             _btnOpenLogs.Enabled = true;
             _btnClose.Enabled = true;
@@ -432,9 +462,42 @@ namespace TecnicoBrasfort.UI
             _lblProgressPct.Text = string.Format("{0}%", _progressPct);
         }
 
+        private void OnUnattendedClick(object sender, EventArgs e)
+        {
+            if (!_sessionState.IsRunning || _sessionState.IsUnattendedMode)
+            {
+                return;
+            }
+
+            DialogResult confirm = MessageBox.Show(
+                this,
+                "Deseja ativar o Modo Tecnico Ausente?\n\nO painel principal sera fechado permanentemente nesta sessao.\nAo concluir a fila, fechar esta janela encerrara todo o aplicativo.",
+                "Confirmar Modo Tecnico Ausente",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+
+            if (confirm != DialogResult.Yes)
+            {
+                return;
+            }
+
+            _sessionState.ActivateUnattendedAfterConfirmation();
+            Owner = null;
+            if (_promoteToPrimary != null)
+            {
+                _promoteToPrimary(this);
+            }
+
+            _btnUnattended.Visible = false;
+            _lblUnattendedActive.Visible = true;
+            Text = "Tecnico Brasfort - Execucao em Andamento [Tecnico Ausente]";
+            AppendLogLine("[MODO TECNICO AUSENTE] Painel principal fechado permanentemente para esta sessao.");
+        }
+
         private void OnMinimizeBackgroundClick(object sender, EventArgs e)
         {
-            if (!_isRunning)
+            if (!_sessionState.IsRunning)
             {
                 return;
             }
@@ -450,7 +513,7 @@ namespace TecnicoBrasfort.UI
             }
 
             Hide();
-            if (_ownerForm != null && !_ownerForm.IsDisposed)
+            if (_sessionState.ShouldShowOwnerOnRestore() && _ownerForm != null && !_ownerForm.IsDisposed)
             {
                 _ownerForm.Hide();
             }
@@ -462,22 +525,27 @@ namespace TecnicoBrasfort.UI
             _isBackgroundMode = false;
             if (_bannerForm != null && !_bannerForm.IsDisposed)
             {
-                _bannerForm.Close();
+                _bannerForm.ForceClose();
                 _bannerForm.Dispose();
                 _bannerForm = null;
             }
 
-            if (_ownerForm != null && !_ownerForm.IsDisposed)
+            if (_sessionState.ShouldShowOwnerOnRestore() && _ownerForm != null && !_ownerForm.IsDisposed)
             {
                 _ownerForm.Show();
             }
+            if (WindowState == FormWindowState.Minimized)
+            {
+                WindowState = FormWindowState.Normal;
+            }
             Show();
             BringToFront();
+            Activate();
         }
 
         private void OnCancelClick(object sender, EventArgs e)
         {
-            if (!_isRunning)
+            if (!_sessionState.IsRunning)
             {
                 return;
             }
@@ -531,7 +599,7 @@ namespace TecnicoBrasfort.UI
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (_isRunning && e.CloseReason == CloseReason.UserClosing)
+            if (_sessionState.IsRunning && e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
                 OnMinimizeBackgroundClick(this, EventArgs.Empty);
@@ -540,7 +608,7 @@ namespace TecnicoBrasfort.UI
 
             if (_bannerForm != null && !_bannerForm.IsDisposed)
             {
-                _bannerForm.Close();
+                _bannerForm.ForceClose();
                 _bannerForm.Dispose();
                 _bannerForm = null;
             }

@@ -13,6 +13,7 @@ Painel desktop WinForms portátil (`.exe` único em C# 5.0 / `.NET Framework 4.8
 *   **Seleção livre + 5 Combos:** Permite marcar qualquer conjunto de ações por checkboxes ou aplicar um dos 5 combos pré-montados (incluindo *Limpeza Lógica / Travamentos* na ordem `Temp -> DISM /RestoreHealth -> SFC -> WinSxS`).
 *   **Botão `[?]` em todas as ações:** Explica o que a rotina faz, seu impacto e exibe o comando CMD/PowerShell equivalente com botão para copiar.
 *   **Modo segundo plano visível:** Minimiza a janela de progresso para um banner compacto no canto da tela (*"Suporte TI Brasfort em andamento — Não desligue o computador"*) + ícone na bandeja.
+*   **Modo Técnico Ausente:** Botão na tela de execução em andamento que fecha permanentemente o painel principal (`MainForm`), mantendo apenas o progresso/resumo visível até o fechamento final da janela (quando todo o aplicativo é encerrado).
 *   **Fechamento de chamado e aviso de reinício:** Grava automaticamente o resumo de fechamento junto aos logs e destaca ao final se a máquina precisa ser reiniciada.
 
 ## Build e Testes
