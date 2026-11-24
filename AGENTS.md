@@ -183,10 +183,11 @@ Tecnico Brasfort/
 │       ├── Assets/
 │       │   └── app.ico                  # Icone padrao multi-resolucao (#303841, #76ABAE, #FF5722)
 │       ├── app.manifest                 # Manifesto UAC (requireAdministrator + dpiAware)
-│       ├── Program.cs                   # [STAThread], handlers globais, AccessGate e MainForm
+│       ├── Program.cs                   # [STAThread], SessionApplicationContext, handlers globais, AccessGate e MainForm
 │       ├── Core/                        # Infraestrutura compartilhada
 │       │   ├── Models.cs                # DTOs (AppConfig fail-closed, ActionDefinition, ComboDefinition, etc.)
 │       │   ├── IExecutionObserver.cs    # Observador de saída/progresso (NullExecutionObserver)
+│       │   ├── UnattendedSessionState.cs# Máquina de estados headless do Modo Técnico Ausente
 │       │   ├── AccessGate.cs            # Validação fail-closed PBKDF2-SHA256 + FixedTimeEquals XOR
 │       │   ├── ElevationPolicy.cs       # Decisão de elevação (headless), parsing de credenciais e erros Win32
 │       │   ├── ElevationService.cs      # Detecção UAC 64-bit, LogonUserW, WNetGetConnectionW e relançamento
@@ -331,3 +332,4 @@ O projeto adota **testes unitários isolados e 100% headless com fakes em memór
 | 2026-11-23 | Agente IA | Evolução para `v2` GUI WinForms (`SIR-146` / `tecnico_brasfort_v2_design.md`): `/target:winexe`, `System.Windows.Forms`/`System.Drawing`, `dpiAware`, remoção de `ConsoleMenu.cs`, novos arquivos `Core/` e `UI/`, autenticação fail-closed PBKDF2-SHA256 e `scripts/New-AccessPasswordHash.ps1`. |
 | 2026-11-24 | Agente IA | Evolução `v2.1` (`SIR-152` / `elevacao_adm_assistida_design.md`): detecção automática de privilégio/UAC, `Core/ElevationPolicy.cs`, `Core/ElevationService.cs`, `UI/ElevationCredentialDialog.cs` (6 formulários) e `SkipAccessGateWhenElevated`. |
 | 2026-11-24 | Agente IA | Evolução `v2.2` (`SIR-155` / `tecnico_ausente_e_icone_design.md`): ícone padrão multi-resolução (`scripts/New-AppIcon.ps1`, `Assets/app.ico`, `/win32icon:`) e `UI/AppIconProvider.cs` aplicado às 6 janelas visíveis e `NotifyIcon`. |
+| 2026-11-24 | Agente IA | Evolução `v2.2` (`SIR-156`): `Core/UnattendedSessionState.cs` headless, `SessionApplicationContext` em `Program.cs`, desinscrição de eventos/guarda cross-thread em `MainForm.cs` e cobertura em `V2CoreTests.cs`. |

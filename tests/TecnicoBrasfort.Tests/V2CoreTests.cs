@@ -21,6 +21,7 @@ namespace TecnicoBrasfort.Tests
             run("ElevationPolicy_ParseCredentials_HandlesAllFormats", ElevationPolicy_ParseCredentials_HandlesAllFormats);
             run("ElevationPolicy_Helpers_DrivePrefixRetryArgsAndErrors", ElevationPolicy_Helpers_DrivePrefixRetryArgsAndErrors);
             run("AccessGate_ShouldPromptForPassword_EnforcesFailClosedAndBypass", AccessGate_ShouldPromptForPassword_EnforcesFailClosedAndBypass);
+            run("UnattendedSessionState_TransitionsAndGuards_EnforceIrreversibility", UnattendedSessionState_TransitionsAndGuards_EnforceIrreversibility);
         }
 
         private static void AccessGate_GenerateAndVerify_ValidAndWrongPassword()
@@ -283,6 +284,35 @@ namespace TecnicoBrasfort.Tests
             corrupt.ParseSucceeded = false;
             corrupt.Config.SkipAccessGateWhenElevated = true;
             Assert.True(AccessGate.ShouldPromptForPassword(corrupt, true), "Config ausente deve permanecer fail-closed.");
+        }
+
+        private static void UnattendedSessionState_TransitionsAndGuards_EnforceIrreversibility()
+        {
+            UnattendedSessionState state = new UnattendedSessionState();
+            Assert.True(!state.IsRunning, "Estado inicial nao deve estar em execucao.");
+            Assert.True(!state.IsUnattendedMode, "Estado inicial nao deve estar em modo ausente.");
+            Assert.True(state.ShouldShowOwnerOnRestore(), "Modo normal deve exibir owner ao restaurar.");
+            Assert.True(!state.TryActivateUnattended(), "Nao deve ativar modo ausente antes de Start().");
+
+            state.Start();
+            Assert.True(state.IsRunning, "Start() deve marcar IsRunning=true.");
+            Assert.True(state.TryActivateUnattended(), "Deve permitir ativar modo ausente durante execucao.");
+            Assert.True(state.IsUnattendedMode, "IsUnattendedMode deve ficar true.");
+            Assert.True(!state.TryActivateUnattended(), "Segunda ativacao deve retornar false (idempotente).");
+            Assert.True(!state.ShouldShowOwnerOnRestore(), "Modo ausente nao deve reexibir owner.");
+
+            state.Complete();
+            Assert.True(!state.IsRunning, "Complete() deve marcar IsRunning=false.");
+            Assert.True(state.IsUnattendedMode, "Complete() deve preservar IsUnattendedMode=true.");
+            Assert.True(!state.ShouldShowOwnerOnRestore(), "Modo ausente deve permanecer irreversivel apos Complete().");
+            Assert.True(!state.TryActivateUnattended(), "Nao deve ativar via TryActivateUnattended apos Complete().");
+
+            UnattendedSessionState modalRaceState = new UnattendedSessionState();
+            modalRaceState.Start();
+            modalRaceState.Complete();
+            modalRaceState.ActivateUnattendedAfterConfirmation();
+            Assert.True(modalRaceState.IsUnattendedMode, "Confirmacao modal deve ativar mesmo se fila concluiu durante o dialogo.");
+            Assert.True(!modalRaceState.ShouldShowOwnerOnRestore(), "Owner nao deve reaparecer apos confirmacao modal.");
         }
 
         private static BatchExecutionEngine CreateEngine(

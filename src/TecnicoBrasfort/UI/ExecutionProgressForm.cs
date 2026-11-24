@@ -20,6 +20,7 @@ namespace TecnicoBrasfort.UI
         private readonly BatchExecutionEngine _engine;
         private readonly IList<ActionDefinition> _actions;
         private readonly Form _ownerForm;
+        private readonly Action<Form> _promoteToPrimary;
         private readonly CancellationTokenSource _cts;
         private readonly System.Windows.Forms.Timer _elapsedTimer;
         private readonly Stopwatch _stopwatch;
@@ -50,7 +51,8 @@ namespace TecnicoBrasfort.UI
         public ExecutionProgressForm(
             BatchExecutionEngine engine,
             IList<ActionDefinition> actions,
-            Form ownerForm)
+            Form ownerForm,
+            Action<Form> promoteToPrimary)
         {
             if (engine == null) throw new ArgumentNullException("engine");
             if (actions == null) throw new ArgumentNullException("actions");
@@ -58,6 +60,7 @@ namespace TecnicoBrasfort.UI
             _engine = engine;
             _actions = actions;
             _ownerForm = ownerForm;
+            _promoteToPrimary = promoteToPrimary;
             _cts = new CancellationTokenSource();
             _stopwatch = new Stopwatch();
             _progressPct = 0;

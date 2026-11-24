@@ -25,6 +25,7 @@ namespace TecnicoBrasfort.UI
         private readonly DiagnosticsModule _diagnostics;
         private readonly DriversUpdatesModule _driversUpdates;
         private readonly AuditModule _audit;
+        private readonly Action<Form> _promoteProgressToPrimary;
 
         private readonly Dictionary<string, CheckBox> _actionCheckBoxes;
         private readonly Dictionary<string, ActionDefinition> _actionsById;
@@ -47,7 +48,8 @@ namespace TecnicoBrasfort.UI
             NetworkModule network,
             DiagnosticsModule diagnostics,
             DriversUpdatesModule driversUpdates,
-            AuditModule audit)
+            AuditModule audit,
+            Action<Form> promoteProgressToPrimary)
         {
             if (env == null) throw new ArgumentNullException("env");
             if (engine == null) throw new ArgumentNullException("engine");
@@ -58,6 +60,7 @@ namespace TecnicoBrasfort.UI
             _diagnostics = diagnostics;
             _driversUpdates = driversUpdates;
             _audit = audit;
+            _promoteProgressToPrimary = promoteProgressToPrimary;
 
             _actionCheckBoxes = new Dictionary<string, CheckBox>(StringComparer.OrdinalIgnoreCase);
             _actionsById = new Dictionary<string, ActionDefinition>(StringComparer.OrdinalIgnoreCase);
@@ -602,19 +605,54 @@ namespace TecnicoBrasfort.UI
             }
 
             _btnExecute.Enabled = false;
-            _activeProgressForm = new ExecutionProgressForm(_engine, selected, this);
-            _activeProgressForm.ExecutionFinished += delegate(object s, EventArgs args)
-            {
-                _btnExecute.Enabled = true;
-            };
-            _activeProgressForm.FormClosed += delegate(object s, FormClosedEventArgs args)
-            {
-                _btnExecute.Enabled = true;
-                _activeProgressForm = null;
-            };
+            _activeProgressForm = new ExecutionProgressForm(_engine, selected, this, _promoteProgressToPrimary);
+            _activeProgressForm.ExecutionFinished += OnProgressExecutionFinished;
+            _activeProgressForm.FormClosed += OnProgressFormClosed;
 
             _activeProgressForm.Show(this);
             _activeProgressForm.StartExecution();
+        }
+
+        private void OnProgressExecutionFinished(object sender, EventArgs e)
+        {
+            if (!IsDisposed && !_btnExecute.IsDisposed)
+            {
+                _btnExecute.Enabled = true;
+            }
+        }
+
+        private void OnProgressFormClosed(object sender, FormClosedEventArgs e)
+        {
+            if (!IsDisposed && !_btnExecute.IsDisposed)
+            {
+                _btnExecute.Enabled = true;
+            }
+            DetachActiveProgressForm();
+        }
+
+        private void DetachActiveProgressForm()
+        {
+            if (_activeProgressForm != null)
+            {
+                _activeProgressForm.ExecutionFinished -= OnProgressExecutionFinished;
+                _activeProgressForm.FormClosed -= OnProgressFormClosed;
+                _activeProgressForm = null;
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            DetachActiveProgressForm();
+            base.OnFormClosing(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DetachActiveProgressForm();
+            }
+            base.Dispose(disposing);
         }
 
         private bool ConfirmPreFlightIfNeeded(IList<ActionDefinition> selected)
@@ -686,17 +724,35 @@ namespace TecnicoBrasfort.UI
                 ActionExecutionResult result = _driversUpdates.BackupDrivers(destination, NullExecutionObserver.Instance, CancellationToken.None);
                 if (!IsDisposed && IsHandleCreated)
                 {
-                    BeginInvoke(new MethodInvoker(delegate()
+                    try
                     {
-                        _btnBackupDrivers.Enabled = true;
-                        _btnBackupDrivers.Text = "Backup dos Drivers (pnputil)";
-                        MessageBox.Show(
-                            this,
-                            result.Summary,
-                            result.Success ? "Backup Concluido" : "Aviso no Backup de Drivers",
-                            MessageBoxButtons.OK,
-                            result.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
-                    }));
+                        BeginInvoke(new MethodInvoker(delegate()
+                        {
+                            if (IsDisposed)
+                            {
+                                return;
+                            }
+
+                            if (!_btnBackupDrivers.IsDisposed)
+                            {
+                                _btnBackupDrivers.Enabled = true;
+                                _btnBackupDrivers.Text = "Backup dos Drivers (pnputil)";
+                            }
+
+                            MessageBox.Show(
+                                this,
+                                result.Summary,
+                                result.Success ? "Backup Concluido" : "Aviso no Backup de Drivers",
+                                MessageBoxButtons.OK,
+                                result.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                        }));
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                    }
+                    catch (InvalidOperationException)
+                    {
+                    }
                 }
             });
             worker.IsBackground = true;

@@ -130,9 +130,18 @@ namespace TecnicoBrasfort
                     env,
                     logger);
 
-                using (MainForm mainForm = new MainForm(env, engine, network, diagnostics, drivers, audit))
+                using (SessionApplicationContext context = new SessionApplicationContext())
                 {
-                    Application.Run(mainForm);
+                    MainForm mainForm = new MainForm(
+                        env,
+                        engine,
+                        network,
+                        diagnostics,
+                        drivers,
+                        audit,
+                        context.PromoteToPrimary);
+                    context.MainForm = mainForm;
+                    Application.Run(context);
                 }
 
                 return 0;
@@ -165,6 +174,26 @@ namespace TecnicoBrasfort
                 "Tecnico Brasfort - Erro Critico",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
+        }
+
+        private sealed class SessionApplicationContext : ApplicationContext
+        {
+            public void PromoteToPrimary(Form nextMainForm)
+            {
+                if (nextMainForm == null)
+                {
+                    return;
+                }
+
+                Form previous = MainForm;
+                MainForm = nextMainForm;
+
+                if (previous != null && !object.ReferenceEquals(previous, nextMainForm) && !previous.IsDisposed)
+                {
+                    previous.Close();
+                    previous.Dispose();
+                }
+            }
         }
     }
 }
