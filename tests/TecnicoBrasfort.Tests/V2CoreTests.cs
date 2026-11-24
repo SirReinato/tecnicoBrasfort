@@ -17,6 +17,10 @@ namespace TecnicoBrasfort.Tests
             run("BatchExecutionEngine_ContinuesOnFailureAndAggregatesReboot", BatchExecutionEngine_ContinuesOnFailureAndAggregatesReboot);
             run("BatchExecutionEngine_CancelsCooperatively", BatchExecutionEngine_CancelsCooperatively);
             run("TicketSummaryBuilder_FormatsActionsAndRebootStatus", TicketSummaryBuilder_FormatsActionsAndRebootStatus);
+            run("ElevationPolicy_Evaluate_CoversAllBranches", ElevationPolicy_Evaluate_CoversAllBranches);
+            run("ElevationPolicy_ParseCredentials_HandlesAllFormats", ElevationPolicy_ParseCredentials_HandlesAllFormats);
+            run("ElevationPolicy_Helpers_DrivePrefixRetryArgsAndErrors", ElevationPolicy_Helpers_DrivePrefixRetryArgsAndErrors);
+            run("AccessGate_ShouldPromptForPassword_EnforcesFailClosedAndBypass", AccessGate_ShouldPromptForPassword_EnforcesFailClosedAndBypass);
         }
 
         private static void AccessGate_GenerateAndVerify_ValidAndWrongPassword()
@@ -170,6 +174,115 @@ namespace TecnicoBrasfort.Tests
             Assert.True(summary.Contains("Computador: WS-FIN-02"), "Deve conter hostname.");
             Assert.True(summary.Contains("Reinicializacao necessaria: SIM"), "Deve indicar reinicializacao.");
             Assert.True(summary.Contains("[OK] Limpeza de Temporarios"), "Deve listar acao concluida.");
+        }
+
+        private static void ElevationPolicy_Evaluate_CoversAllBranches()
+        {
+            UacPolicyState luaEnabled = new UacPolicyState();
+            Assert.True(luaEnabled.EnableLua, "Default EnableLua deve ser true.");
+            Assert.Equal(3, luaEnabled.ConsentPromptBehaviorUser);
+
+            Assert.Equal(
+                ElevationDecision.AlreadyElevated,
+                ElevationPolicy.Evaluate(true, luaEnabled, true, true));
+
+            Assert.Equal(
+                ElevationDecision.BlockedLoop,
+                ElevationPolicy.Evaluate(false, luaEnabled, false, true));
+
+            Assert.Equal(
+                ElevationDecision.PromptCredentials,
+                ElevationPolicy.Evaluate(false, luaEnabled, true, false));
+
+            UacPolicyState autoDeny = new UacPolicyState();
+            autoDeny.EnableLua = true;
+            autoDeny.ConsentPromptBehaviorUser = 0;
+            Assert.Equal(
+                ElevationDecision.BlockedConsentDeny,
+                ElevationPolicy.Evaluate(false, autoDeny, false, false));
+
+            Assert.Equal(
+                ElevationDecision.RelaunchRunAs,
+                ElevationPolicy.Evaluate(false, luaEnabled, false, false));
+
+            UacPolicyState luaDisabled = new UacPolicyState();
+            luaDisabled.EnableLua = false;
+            Assert.Equal(
+                ElevationDecision.PromptCredentials,
+                ElevationPolicy.Evaluate(false, luaDisabled, false, false));
+        }
+
+        private static void ElevationPolicy_ParseCredentials_HandlesAllFormats()
+        {
+            ParsedCredentials domUser = ElevationPolicy.ParseCredentials(@"CORP\tech.ti", "DEFAULTDOM", "PC-01");
+            Assert.Equal("CORP", domUser.Domain);
+            Assert.Equal("tech.ti", domUser.UserName);
+
+            ParsedCredentials localUser = ElevationPolicy.ParseCredentials(@".\AdminLocal", "DEFAULTDOM", "PC-01");
+            Assert.Equal("PC-01", localUser.Domain);
+            Assert.Equal("AdminLocal", localUser.UserName);
+
+            ParsedCredentials upnUser = ElevationPolicy.ParseCredentials("tech@corp.example.local", "DEFAULTDOM", "PC-01");
+            Assert.True(upnUser.Domain == null, "UPN exige Domain null.");
+            Assert.Equal("tech@corp.example.local", upnUser.UserName);
+
+            ParsedCredentials bareUser = ElevationPolicy.ParseCredentials("tech.ti", "CORP", "PC-01");
+            Assert.Equal("CORP", bareUser.Domain);
+            Assert.Equal("tech.ti", bareUser.UserName);
+
+            Assert.Equal("", ElevationPolicy.ParseCredentials("", "CORP", "PC-01").UserName);
+            Assert.Equal("", ElevationPolicy.ParseCredentials(@"CORP\", "CORP", "PC-01").UserName);
+            Assert.Equal("", ElevationPolicy.ParseCredentials(@".\", "CORP", "PC-01").UserName);
+            Assert.Equal("", ElevationPolicy.ParseCredentials("@corp.local", "CORP", "PC-01").UserName);
+        }
+
+        private static void ElevationPolicy_Helpers_DrivePrefixRetryArgsAndErrors()
+        {
+            Assert.Equal("Z:", ElevationPolicy.ExtractDriveLetterPrefix(@"Z:\Ferramentas\TecnicoBrasfort.exe"));
+            Assert.Equal("", ElevationPolicy.ExtractDriveLetterPrefix(@"\\servidor\share\TecnicoBrasfort.exe"));
+            Assert.Equal("", ElevationPolicy.ExtractDriveLetterPrefix(""));
+
+            Assert.True(ElevationPolicy.HasRetryFlag(new string[] { "--ELEVATED-CRED" }, ElevationPolicy.CredRetryFlag), "Case-insensitive retry flag.");
+            Assert.Equal("--elevated-runas", ElevationPolicy.BuildRetryArguments(ElevationPolicy.RunAsRetryFlag));
+
+            Assert.True(ElevationPolicy.FormatElevationWin32Error(1058, "").Contains("seclogon"), "Erro 1058 deve citar seclogon.");
+            Assert.True(ElevationPolicy.FormatElevationWin32Error(1326, "").Contains("incorretos"), "Erro 1326 deve indicar credencial invalida.");
+            Assert.True(ElevationPolicy.FormatElevationWin32Error(5, @"C:\Users\u\Desktop\app.exe").Contains("Win32 5"), "Erro 5 deve citar caminho.");
+        }
+
+        private static void AccessGate_ShouldPromptForPassword_EnforcesFailClosedAndBypass()
+        {
+            string salt;
+            string hash;
+            AccessGate.GenerateHash("SenhaTeste@2026", 100000, out salt, out hash);
+
+            ConfigLoadResult validBypass = new ConfigLoadResult();
+            validBypass.FileFound = true;
+            validBypass.ParseSucceeded = true;
+            validBypass.Config.RequireAccessPassword = true;
+            validBypass.Config.AccessSaltBase64 = salt;
+            validBypass.Config.AccessHashBase64 = hash;
+            validBypass.Config.AccessIterations = 100000;
+            validBypass.Config.SkipAccessGateWhenElevated = true;
+
+            Assert.True(!AccessGate.ShouldPromptForPassword(validBypass, true), "Elevado + SkipAccessGateWhenElevated=true deve dispensar dialog.");
+            Assert.True(AccessGate.ShouldPromptForPassword(validBypass, false), "Nao elevado deve exigir senha.");
+
+            validBypass.Config.SkipAccessGateWhenElevated = false;
+            Assert.True(AccessGate.ShouldPromptForPassword(validBypass, true), "SkipAccessGateWhenElevated=false deve exigir senha.");
+
+            ConfigLoadResult missingHash = new ConfigLoadResult();
+            missingHash.FileFound = true;
+            missingHash.ParseSucceeded = true;
+            missingHash.Config.RequireAccessPassword = true;
+            missingHash.Config.SkipAccessGateWhenElevated = true;
+            Assert.True(AccessGate.ShouldPromptForPassword(missingHash, true), "Hash ausente deve permanecer fail-closed.");
+
+            ConfigLoadResult corrupt = new ConfigLoadResult();
+            corrupt.FileFound = false;
+            corrupt.ParseSucceeded = false;
+            corrupt.Config.SkipAccessGateWhenElevated = true;
+            Assert.True(AccessGate.ShouldPromptForPassword(corrupt, true), "Config ausente deve permanecer fail-closed.");
         }
 
         private static BatchExecutionEngine CreateEngine(

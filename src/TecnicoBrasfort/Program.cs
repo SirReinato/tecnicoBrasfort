@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 using TecnicoBrasfort.Core;
@@ -20,6 +21,66 @@ namespace TecnicoBrasfort
 
             try
             {
+                string exePath = Assembly.GetEntryAssembly() != null
+                    ? Assembly.GetEntryAssembly().Location
+                    : Application.ExecutablePath;
+
+                bool isElevated = ElevationService.IsCurrentProcessAdministrator();
+                UacPolicyState uacPolicy = ElevationService.ReadUacPolicy();
+                bool hasRunAsRetry = ElevationPolicy.HasRetryFlag(args, ElevationPolicy.RunAsRetryFlag);
+                bool hasCredRetry = ElevationPolicy.HasRetryFlag(args, ElevationPolicy.CredRetryFlag);
+
+                ElevationDecision decision = ElevationPolicy.Evaluate(
+                    isElevated,
+                    uacPolicy,
+                    hasRunAsRetry,
+                    hasCredRetry);
+
+                if (decision == ElevationDecision.BlockedConsentDeny)
+                {
+                    MessageBox.Show(
+                        "A politica de seguranca desta estacao (UAC Auto-Deny / ConsentPromptBehaviorUser = 0) bloqueia solicitacoes de elevacao para contas padrao.\n\nExecute o Tecnico Brasfort em uma sessao administrativa.",
+                        "Tecnico Brasfort - Elevacao Bloqueada por GPO",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return 1;
+                }
+
+                if (decision == ElevationDecision.BlockedLoop)
+                {
+                    MessageBox.Show(
+                        "O processo foi relancado, mas ainda nao possui privilegio de Administrador local.\n\nVerifique se a conta informada pertence ao grupo local Administrators (ou Workstation Administrators via GPO).",
+                        "Tecnico Brasfort - Privilegio Insuficiente",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return 1;
+                }
+
+                if (decision == ElevationDecision.RelaunchRunAs)
+                {
+                    bool cancelledByUser;
+                    string runAsError;
+                    if (ElevationService.RelaunchWithRunAs(exePath, out cancelledByUser, out runAsError))
+                    {
+                        return 0;
+                    }
+                    if (!cancelledByUser)
+                    {
+                        MessageBox.Show(runAsError, "Tecnico Brasfort - Erro de Elevacao", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    return 1;
+                }
+
+                if (decision == ElevationDecision.PromptCredentials)
+                {
+                    using (ElevationCredentialDialog credDlg = new ElevationCredentialDialog(exePath))
+                    {
+                        return credDlg.ShowDialog() == DialogResult.OK ? 0 : 1;
+                    }
+                }
+
+                ElevationService.EnsureProcessTempDirectoryExists();
+
                 HostEnvironmentAdapter host = new HostEnvironmentAdapter();
                 ConfigLoadResult loadResult = ConfigLoader.LoadWithStatus(host, AppDomain.CurrentDomain.BaseDirectory);
 
@@ -34,7 +95,7 @@ namespace TecnicoBrasfort
                     return 1;
                 }
 
-                if (loadResult.Config.RequireAccessPassword)
+                if (AccessGate.ShouldPromptForPassword(loadResult, isElevated))
                 {
                     using (AccessGateDialog gate = new AccessGateDialog(loadResult.Config))
                     {
