@@ -129,7 +129,7 @@ namespace TecnicoBrasfort.Core
             return false;
         }
 
-        private static RegistryKey OpenLocalMachineKey()
+        public static RegistryKey OpenLocalMachineKey()
         {
             try
             {
