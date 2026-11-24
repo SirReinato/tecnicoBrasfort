@@ -7,6 +7,7 @@
     <AssemblyName>TecnicoBrasfort</AssemblyName>
     <RootNamespace>TecnicoBrasfort</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 

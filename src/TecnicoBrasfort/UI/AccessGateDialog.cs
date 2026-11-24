@@ -28,7 +28,7 @@ namespace TecnicoBrasfort.UI
             ClientSize = new Size(420, 195);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
-            Icon = SystemIcons.Shield;
+            Icon = AppIconProvider.GetAppIcon();
 
             Label lblTitle = new Label();
             lblTitle.Text = "Acesso restrito a equipe de Suporte TI";

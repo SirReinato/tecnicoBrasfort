@@ -72,7 +72,7 @@ namespace TecnicoBrasfort.UI
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
             BackColor = ColorWarmBg;
-            Icon = SystemIcons.Shield;
+            Icon = AppIconProvider.GetAppIcon();
 
             // Painel lateral direito fixo: Ferramentas Rapidas (#303841)
             Panel pnlQuickTools = new Panel();
@@ -713,6 +713,7 @@ namespace TecnicoBrasfort.UI
                 logForm.StartPosition = FormStartPosition.CenterParent;
                 logForm.AutoScaleMode = AutoScaleMode.Font;
                 logForm.BackColor = ColorWarmBg;
+                logForm.Icon = AppIconProvider.GetAppIcon();
 
                 TextBox txt = new TextBox();
                 txt.Multiline = true;

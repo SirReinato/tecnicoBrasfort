@@ -62,7 +62,7 @@ namespace TecnicoBrasfort.UI
             Controls.Add(_btnExpand);
 
             _notifyIcon = new NotifyIcon();
-            _notifyIcon.Icon = SystemIcons.Shield;
+            _notifyIcon.Icon = AppIconProvider.GetAppIcon();
             _notifyIcon.Text = "Tecnico Brasfort - Suporte em andamento";
             _notifyIcon.Visible = true;
             _notifyIcon.DoubleClick += delegate(object sender, EventArgs e)

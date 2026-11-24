@@ -10,7 +10,12 @@ $SrcDir = Join-Path $RepoRoot "src\TecnicoBrasfort"
 $TestsDir = Join-Path $RepoRoot "tests\TecnicoBrasfort.Tests"
 $DistDir = Join-Path $RepoRoot "dist"
 $ManifestPath = Join-Path $SrcDir "app.manifest"
+$IconPath = Join-Path $SrcDir "Assets\app.ico"
 $CscPath = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+
+if (-not (Test-Path $IconPath)) {
+    throw "Icone padrao nao encontrado em: $IconPath. Execute scripts\New-AppIcon.ps1."
+}
 
 if (-not (Test-Path $DistDir)) {
     New-Item -ItemType Directory -Path $DistDir | Out-Null
@@ -45,6 +50,7 @@ $CscArgs = @(
     "/optimize+",
     "/warnaserror+",
     "/win32manifest:$ManifestPath",
+    "/win32icon:$IconPath",
     "/out:$ExeOut"
 ) + $BclRefs + @("/recurse:$SrcDir\*.cs")
 

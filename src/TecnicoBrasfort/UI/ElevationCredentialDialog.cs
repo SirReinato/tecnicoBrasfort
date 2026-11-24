@@ -29,7 +29,7 @@ namespace TecnicoBrasfort.UI
             ClientSize = new Size(450, 275);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
-            Icon = SystemIcons.Shield;
+            Icon = AppIconProvider.GetAppIcon();
 
             Label lblTitle = new Label();
             lblTitle.Text = "Privilegio de Administrador necessario";

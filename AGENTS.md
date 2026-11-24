@@ -173,12 +173,15 @@ Tecnico Brasfort/
 ├── TecnicoBrasfort.sln                  # Solution .NET
 ├── config.example.json                  # Template público de configuração
 ├── scripts/
-│   ├── build.ps1                        # Build WinForms (/target:winexe), testes headless e SHA-256
-│   └── New-AccessPasswordHash.ps1       # Gerador local de salt + hash PBKDF2-SHA256 via AccessGate
+│   ├── build.ps1                        # Build WinForms (/target:winexe + /win32icon), testes headless e SHA-256
+│   ├── New-AccessPasswordHash.ps1       # Gerador local de salt + hash PBKDF2-SHA256 via AccessGate
+│   └── New-AppIcon.ps1                  # Gerador do icone padrao multi-resolucao (16/32/48/256) em Assets/app.ico
 ├── dist/                                # Saída compilada local (gitignored)
 ├── src/
 │   └── TecnicoBrasfort/
-│       ├── TecnicoBrasfort.csproj       # Projeto net48 WinExe (LangVersion 5) com app.manifest
+│       ├── TecnicoBrasfort.csproj       # Projeto net48 WinExe (LangVersion 5) com app.manifest e ApplicationIcon
+│       ├── Assets/
+│       │   └── app.ico                  # Icone padrao multi-resolucao (#303841, #76ABAE, #FF5722)
 │       ├── app.manifest                 # Manifesto UAC (requireAdministrator + dpiAware)
 │       ├── Program.cs                   # [STAThread], handlers globais, AccessGate e MainForm
 │       ├── Core/                        # Infraestrutura compartilhada
@@ -199,6 +202,7 @@ Tecnico Brasfort/
 │       │   ├── AuditLogger.cs           # Logger thread-safe (lock) + SaveTicketSummary
 │       │   └── ConfigLoader.cs          # LoadWithStatus em memória via DataContractJsonSerializer
 │       ├── UI/                          # Formulários WinForms em código C# 5.0 puro (sem .resx)
+│       │   ├── AppIconProvider.cs       # Cache único do ícone padrão via ExtractAssociatedIcon (fallback SystemIcons.Shield)
 │       │   ├── ElevationCredentialDialog.cs # Diálogo de credencial TI (EnableLUA = 0) com relançamento inline
 │       │   ├── AccessGateDialog.cs      # Diálogo de senha (até 3 tentativas)
 │       │   ├── ActionHelpDialog.cs      # Modal [?] com explicação e cópia resiliente de comando
@@ -326,3 +330,4 @@ O projeto adota **testes unitários isolados e 100% headless com fakes em memór
 | 2026-11-23 | Agente IA | Alinhamento com `tecnico_brasfort_design.md` (`SIR-139`): C# 5.0 estrito, `IHostEnvironment`, `ArgumentEscaper` e `TestRunner.cs`. |
 | 2026-11-23 | Agente IA | Evolução para `v2` GUI WinForms (`SIR-146` / `tecnico_brasfort_v2_design.md`): `/target:winexe`, `System.Windows.Forms`/`System.Drawing`, `dpiAware`, remoção de `ConsoleMenu.cs`, novos arquivos `Core/` e `UI/`, autenticação fail-closed PBKDF2-SHA256 e `scripts/New-AccessPasswordHash.ps1`. |
 | 2026-11-24 | Agente IA | Evolução `v2.1` (`SIR-152` / `elevacao_adm_assistida_design.md`): detecção automática de privilégio/UAC, `Core/ElevationPolicy.cs`, `Core/ElevationService.cs`, `UI/ElevationCredentialDialog.cs` (6 formulários) e `SkipAccessGateWhenElevated`. |
+| 2026-11-24 | Agente IA | Evolução `v2.2` (`SIR-155` / `tecnico_ausente_e_icone_design.md`): ícone padrão multi-resolução (`scripts/New-AppIcon.ps1`, `Assets/app.ico`, `/win32icon:`) e `UI/AppIconProvider.cs` aplicado às 6 janelas visíveis e `NotifyIcon`. |

@@ -27,6 +27,7 @@ namespace TecnicoBrasfort.UI
             ClientSize = new Size(560, 340);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
+            Icon = AppIconProvider.GetAppIcon();
 
             Label lblTitle = new Label();
             lblTitle.Text = action.Name;

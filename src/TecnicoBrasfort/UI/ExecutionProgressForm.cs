@@ -72,7 +72,7 @@ namespace TecnicoBrasfort.UI
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
             BackColor = ColorWarmBg;
-            Icon = SystemIcons.Shield;
+            Icon = AppIconProvider.GetAppIcon();
 
             // Cabecalho escuro (#303841)
             Panel pnlHeader = new Panel();
