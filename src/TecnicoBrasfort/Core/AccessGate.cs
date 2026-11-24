@@ -79,6 +79,27 @@ namespace TecnicoBrasfort.Core
             }
         }
 
+        public static bool ShouldPromptForPassword(ConfigLoadResult loadResult, bool isElevatedAdmin)
+        {
+            string error;
+            if (!IsConfigurationValid(loadResult, out error))
+            {
+                return true;
+            }
+
+            if (!loadResult.Config.RequireAccessPassword)
+            {
+                return false;
+            }
+
+            if (loadResult.Config.SkipAccessGateWhenElevated && isElevatedAdmin)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
         public static bool VerifyPassword(string password, AppConfig config)
         {
             if (config == null)

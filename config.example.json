@@ -9,5 +9,6 @@
   "RequireAccessPassword": false,
   "AccessSaltBase64": "",
   "AccessHashBase64": "",
-  "AccessIterations": 100000
+  "AccessIterations": 100000,
+  "SkipAccessGateWhenElevated": false
 }

@@ -110,7 +110,7 @@ O **Tecnico Brasfort** é uma aplicação desktop WinForms portátil (`.exe` ún
 | :--- | :--- | :--- |
 | **Linguagem & Runtime** | **C# 5.0 / .NET Framework 4.8 (`net48`)** | Nativo no Windows 10/11 e Server 2016+; gera `.exe` `/target:winexe` único < 1 MB sem instalar runtime. Restrição estrita de C# 5.0 (`<LangVersion>5</LangVersion>`) para `csc.exe` v4.0.30319. |
 | **Dependências Runtime** | **Zero NuGet em runtime (BCL-only)** | Assemblies nativos: `System`, `System.Core`, `System.Management`, `System.Runtime.Serialization`, `System.Xml`, `System.ServiceProcess`, `System.Net.Http`, `System.Windows.Forms`, `System.Drawing`. |
-| **Interface Desktop** | **Windows Forms (código C# 5.0 puro, sem `.resx`)** | 5 formulários construídos via código com `[STAThread]`, `dpiAware`, marshal assíncrono `BeginInvoke` e banner `TopMost` + `NotifyIcon`. |
+| **Interface Desktop** | **Windows Forms (código C# 5.0 puro, sem `.resx`)** | 6 formulários construídos via código com `[STAThread]`, `dpiAware`, elevação assistida, marshal assíncrono `BeginInvoke` e banner `TopMost` + `NotifyIcon`. |
 | **APIs de Sistema** | **Win32 / WMI / CIM / Registry (`RegistryView.Registry64`)** | Usuário interativo (`explorer.exe` + `SessionId`), discos, impressoras (`HKU\<SID>`), serviços, Windows Update COM e chaves de reboot pendente. |
 | **Manifesto & Elevação** | **`app.manifest` (`requireAdministrator` + `dpiAware`)** | Elevação UAC explícita e suporte a escala DPI corporativa. Execução via rede deve usar caminho UNC (`\\servidor\...`). |
 | **Controle de Acesso** | **PBKDF2-SHA256 (`Rfc2898DeriveBytes`) + `FixedTimeEquals` XOR** | Validação contra hash com salt no `config.json` (política fail-closed). |
@@ -148,6 +148,7 @@ Nenhuma informação sensível ou específica de infraestrutura interna (IPs, no
 | `AccessSaltBase64` | Salt aleatório Base64 (>= 16 bytes) para PBKDF2-SHA256 | `""` |
 | `AccessHashBase64` | Hash derivado Base64 (32 bytes) para PBKDF2-SHA256 | `""` |
 | `AccessIterations` | Iterações PBKDF2 (mínimo `100000`) | `100000` |
+| `SkipAccessGateWhenElevated` | Dispensa `AccessGateDialog` quando o token real já estiver elevado (`false` por padrão) | `false` *(use `true` em produção para evitar dupla senha)* |
 
 > ⚠️ **Princípio de Zero Segredos:** Nunca armazene senhas em texto claro no código-fonte, no `.exe`, no `config.json` ou no Git.
 
@@ -161,7 +162,8 @@ Tecnico Brasfort/
 │   ├── 01 - brainstorm-inicial 2026-11-19/
 │   ├── 02 - design-tecnico 2026-11-23/
 │   ├── 03 - painel-gui-combos-chamado 2026-11-23/
-│   └── 04 - design-tecnico-v2 2026-11-23/
+│   ├── 04 - design-tecnico-v2 2026-11-23/
+│   └── 05 - elevacao-adm-assistida 2026-11-24/
 ├── AGENTS.md                            # Fonte da verdade para IAs e agentes (este arquivo)
 ├── CLAUDE.md, GEMINI.md                 # Arquivos ponteiro apontando para AGENTS.md
 ├── .github/copilot-instructions.md      # Arquivo ponteiro apontando para AGENTS.md
@@ -183,6 +185,8 @@ Tecnico Brasfort/
 │       │   ├── Models.cs                # DTOs (AppConfig fail-closed, ActionDefinition, ComboDefinition, etc.)
 │       │   ├── IExecutionObserver.cs    # Observador de saída/progresso (NullExecutionObserver)
 │       │   ├── AccessGate.cs            # Validação fail-closed PBKDF2-SHA256 + FixedTimeEquals XOR
+│       │   ├── ElevationPolicy.cs       # Decisão de elevação (headless), parsing de credenciais e erros Win32
+│       │   ├── ElevationService.cs      # Detecção UAC 64-bit, LogonUserW, WNetGetConnectionW e relançamento
 │       │   ├── ActionCatalog.cs         # Catálogo das 20 ações em lote, 5 Ferramentas Rápidas, 5 Combos e [?]
 │       │   ├── TicketSummaryBuilder.cs  # Gerador de texto de fechamento de chamado
 │       │   ├── BatchExecutionEngine.cs  # Orquestrador de fila tolerante a falhas e detecção de reboot
@@ -195,6 +199,7 @@ Tecnico Brasfort/
 │       │   ├── AuditLogger.cs           # Logger thread-safe (lock) + SaveTicketSummary
 │       │   └── ConfigLoader.cs          # LoadWithStatus em memória via DataContractJsonSerializer
 │       ├── UI/                          # Formulários WinForms em código C# 5.0 puro (sem .resx)
+│       │   ├── ElevationCredentialDialog.cs # Diálogo de credencial TI (EnableLUA = 0) com relançamento inline
 │       │   ├── AccessGateDialog.cs      # Diálogo de senha (até 3 tentativas)
 │       │   ├── ActionHelpDialog.cs      # Modal [?] com explicação e cópia resiliente de comando
 │       │   ├── BackgroundStatusBannerForm.cs # Banner TopMost sem foco + NotifyIcon
@@ -223,8 +228,9 @@ Tecnico Brasfort/
 
 ```text
 Program.cs ([STAThread] + handlers globais)
+  ├─ ElevationService / ElevationPolicy (checa Admin + EnableLUA 64-bit; relança via runas ou ElevationCredentialDialog)
   ├─ ConfigLoader.LoadWithStatus (carrega config.json em memória no startup)
-  ├─ AccessGate + AccessGateDialog (fail-closed por padrão; valida PBKDF2-SHA256)
+  ├─ AccessGate + AccessGateDialog (fail-closed por padrão; pula se SkipAccessGateWhenElevated && Admin real)
   ├─ EnvironmentContext (gera EnvironmentInfo: origem UNC/USB, usuário interativo via SessionId + SID)
   ├─ AuditLogger (thread-safe com lock; grava logs e resumos de fechamento)
   └─ MainForm (3 zonas)
@@ -243,7 +249,7 @@ Program.cs ([STAThread] + handlers globais)
 | :--- | :--- | :--- |
 | `EnvironmentInfo` | Hostname, OsVersion, ElevatedAdmin, InteractiveUser, InteractiveUserSid, OriginDirectory e IsUncOrigin. | Memória (em runtime) / Cabeçalho da UI, Modules e Logs |
 | `ActionLogEntry` | Timestamp, Hostname, TechAdmin, InteractiveUser, ModuleName, ActionName, ExitCode e Summary. | Log primário (`ProgramData`) e cópia secundária (`Public\Desktop`) |
-| `AppConfig` | DomainFqdn, DnsTestTargets, ExchangeCheckUrl, LogDirectoryOverride, RequireAccessPassword (`true` default), AccessSaltBase64, AccessHashBase64, AccessIterations. | `config.json` carregado em memória no startup |
+| `AppConfig` | DomainFqdn, DnsTestTargets, ExchangeCheckUrl, LogDirectoryOverride, RequireAccessPassword (`true` default), AccessSaltBase64, AccessHashBase64, AccessIterations, SkipAccessGateWhenElevated (`false` default). | `config.json` carregado em memória no startup |
 | `ActionDefinition` / `ComboDefinition` | Metadados das 20 ações em lote, 5 Ferramentas Rápidas, 5 Combos e ajuda `[?]`. | `ActionCatalog` (memória) / `MainForm`, `BatchExecutionEngine` |
 | `ActionExecutionResult` / `BatchExecutionReport` | Resultado estruturado de cada etapa, flag `RebootRequired`, `TicketSummaryText` e `SavedSummaryPath`. | `BatchExecutionEngine` / `ExecutionProgressForm` / `Fechamento_*.txt` |
 
@@ -251,7 +257,7 @@ Program.cs ([STAThread] + handlers globais)
 
 ## 8. Regras de negócio
 
-1. **Autenticação Fail-Closed:** `AppConfig.RequireAccessPassword` é `true` por padrão em memória. Se `config.json` estiver ausente, corrompido ou sem hash válido, a abertura do painel é bloqueada (exceto se um `config.json` íntegro definir explicitamente `"RequireAccessPassword": false`).
+1. **Autenticação Fail-Closed e Bypass Seguro por Token:** `AppConfig.RequireAccessPassword` é `true` por padrão em memória. Se `config.json` estiver ausente, corrompido ou sem hash válido, a abertura do painel é bloqueada (exceto se um `config.json` íntegro definir explicitamente `"RequireAccessPassword": false`). Quando `"SkipAccessGateWhenElevated": true` em um `config.json` íntegro e o token real do Windows possuir `WindowsBuiltInRole.Administrator`, o `AccessGateDialog` é dispensado sem depender de flags de linha de comando.
 2. **Ordem do Combo 1 (Limpeza Lógica / Travamentos):** Executar sempre `Temp -> DISM /RestoreHealth -> SFC /scannow -> WinSxS`.
 3. **Execução Tolerante a Falhas e Sem Bloqueios:** Em erro de uma etapa da fila, o `BatchExecutionEngine` registra o resultado e avança para a próxima; confirmações destrutivas/remotas ocorrem uma única vez no pré-voo antes de iniciar a fila.
 4. **Modo Segundo Plano Protegido:** O banner visual flutuante informa o usuário final sem roubar foco e bloqueia fechamento pelo usuário (`Alt+F4`) enquanto a fila estiver ativa.
@@ -319,3 +325,4 @@ O projeto adota **testes unitários isolados e 100% headless com fakes em memór
 | 2026-11-19 | Agente IA | Criação inicial do `AGENTS.md` do projeto **Tecnico Brasfort** (`v1` CLI em C# / .NET Framework 4.8). |
 | 2026-11-23 | Agente IA | Alinhamento com `tecnico_brasfort_design.md` (`SIR-139`): C# 5.0 estrito, `IHostEnvironment`, `ArgumentEscaper` e `TestRunner.cs`. |
 | 2026-11-23 | Agente IA | Evolução para `v2` GUI WinForms (`SIR-146` / `tecnico_brasfort_v2_design.md`): `/target:winexe`, `System.Windows.Forms`/`System.Drawing`, `dpiAware`, remoção de `ConsoleMenu.cs`, novos arquivos `Core/` e `UI/`, autenticação fail-closed PBKDF2-SHA256 e `scripts/New-AccessPasswordHash.ps1`. |
+| 2026-11-24 | Agente IA | Evolução `v2.1` (`SIR-152` / `elevacao_adm_assistida_design.md`): detecção automática de privilégio/UAC, `Core/ElevationPolicy.cs`, `Core/ElevationService.cs`, `UI/ElevationCredentialDialog.cs` (6 formulários) e `SkipAccessGateWhenElevated`. |

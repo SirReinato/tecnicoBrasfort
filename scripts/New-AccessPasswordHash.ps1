@@ -44,10 +44,11 @@ try {
     Write-Host ""
     Write-Host "Copie os campos abaixo para o arquivo config.json ao lado do executavel:" -ForegroundColor Green
     $Snippet = [ordered]@{
-        RequireAccessPassword = $true
-        AccessSaltBase64      = $SaltBase64
-        AccessHashBase64      = $HashBase64
-        AccessIterations      = $Iterations
+        RequireAccessPassword      = $true
+        AccessSaltBase64           = $SaltBase64
+        AccessHashBase64           = $HashBase64
+        AccessIterations           = $Iterations
+        SkipAccessGateWhenElevated = $false
     }
     $Snippet | ConvertTo-Json
 }

@@ -31,6 +31,9 @@ namespace TecnicoBrasfort.Core
         [DataMember]
         public int AccessIterations { get; set; }
 
+        [DataMember]
+        public bool SkipAccessGateWhenElevated { get; set; }
+
         public AppConfig()
         {
             SetDefaults();
@@ -52,6 +55,7 @@ namespace TecnicoBrasfort.Core
             AccessSaltBase64 = "";
             AccessHashBase64 = "";
             AccessIterations = 100000;
+            SkipAccessGateWhenElevated = false;
         }
     }
 
