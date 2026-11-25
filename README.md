@@ -14,6 +14,7 @@ Painel desktop WinForms portátil (`.exe` único em C# 5.0 / `.NET Framework 4.8
 *   **Botão `[?]` em todas as ações:** Explica o que a rotina faz, seu impacto e exibe o comando CMD/PowerShell equivalente com botão para copiar.
 *   **Modo segundo plano visível:** Minimiza a janela de progresso para um banner compacto no canto da tela (*"Suporte TI Brasfort em andamento — Não desligue o computador"*) + ícone na bandeja.
 *   **Modo Técnico Ausente:** Botão na tela de execução em andamento que fecha permanentemente o painel principal (`MainForm`), mantendo apenas o progresso/resumo visível até o fechamento final da janela (quando todo o aplicativo é encerrado).
+*   **Reparo de Windows Update, Store e Perfis de Serviço:** Verifica e restaura chaves nativas (`S-1-5-18`, `S-1-5-19`, `S-1-5-20`) em `ProfileList`, limpa caches de `DoSvc`/`SoftwareDistribution` com backup, reinicia os serviços (`DoSvc`, `CDPSvc`, `bits`, `wuauserv`, `UsoSvc`, `InstallService`) e recupera condicionalmente o `WSearch` (`Windows.db`) caso esteja parado/falhando.
 *   **Fechamento de chamado e aviso de reinício:** Grava automaticamente o resumo de fechamento junto aos logs e destaca ao final se a máquina precisa ser reiniciada.
 
 ## Build e Testes

@@ -173,6 +173,39 @@ namespace TecnicoBrasfort.Tests
             return Files.Remove(path);
         }
 
+        public readonly List<string> RestoredServiceProfiles = new List<string>();
+        public readonly List<string> MovedPaths = new List<string>();
+
+        public bool TryMoveFile(string sourcePath, string destinationPath)
+        {
+            string content;
+            if (!Files.TryGetValue(sourcePath, out content))
+            {
+                return false;
+            }
+            Files.Remove(sourcePath);
+            Files[destinationPath] = content;
+            MovedPaths.Add(sourcePath + " -> " + destinationPath);
+            return true;
+        }
+
+        public bool TryMoveDirectory(string sourcePath, string destinationPath)
+        {
+            if (!Directories.Contains(sourcePath))
+            {
+                return false;
+            }
+            Directories.Remove(sourcePath);
+            Directories.Add(destinationPath);
+            MovedPaths.Add(sourcePath + " -> " + destinationPath);
+            return true;
+        }
+
+        public IList<string> EnsureNativeServiceProfilesPresent()
+        {
+            return new List<string>(RestoredServiceProfiles);
+        }
+
         public long GetAvailableFreeSpaceBytes(string path)
         {
             return FreeSpaceBytes;

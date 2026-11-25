@@ -12,6 +12,9 @@ namespace TecnicoBrasfort.Core
         IEnumerable<string> GetFiles(string path, string searchPattern);
         IEnumerable<string> GetDirectories(string path);
         bool TryDeleteFile(string path);
+        bool TryMoveFile(string sourcePath, string destinationPath);
+        bool TryMoveDirectory(string sourcePath, string destinationPath);
+        IList<string> EnsureNativeServiceProfilesPresent();
         long GetAvailableFreeSpaceBytes(string path);
         IList<string> GetUserPrinterConnections(string userSid);
         bool HasPendingSystemReboot();

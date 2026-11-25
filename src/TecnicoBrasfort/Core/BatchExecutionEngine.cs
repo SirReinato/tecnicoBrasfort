@@ -212,6 +212,8 @@ namespace TecnicoBrasfort.Core
                     return _driversUpdates.ListErrorDevices(observer, cancellationToken);
                 case "drv_search_updates":
                     return _driversUpdates.SearchPendingUpdates(observer, cancellationToken);
+                case "drv_wu_repair":
+                    return _driversUpdates.RepairWindowsUpdateAndStore(observer, cancellationToken);
                 case "drv_backup":
                     return _driversUpdates.BackupDrivers("", observer, cancellationToken);
                 case "drv_wu_settings":

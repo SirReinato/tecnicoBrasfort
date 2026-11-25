@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Management;
@@ -202,6 +203,197 @@ namespace TecnicoBrasfort.Modules
                 cancellationToken);
             LogAction("Procurar atualizacoes do Windows", res.ExitCode, "Tela do Windows Update aberta.");
             return BuildResult("drv_wu_settings", "Abrir Configuracoes do Windows Update", res.ExitCode, res.Cancelled, res.Duration, "Tela do Windows Update aberta.");
+        }
+
+        public ActionExecutionResult RepairWindowsUpdateAndStore(IExecutionObserver observer, CancellationToken cancellationToken)
+        {
+            IExecutionObserver obs = observer ?? NullExecutionObserver.Instance;
+            Stopwatch sw = Stopwatch.StartNew();
+            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                sw.Stop();
+                return BuildResult("drv_wu_repair", "Reparar Windows Update, Store e Perfis de Servico", -1, true, sw.Elapsed, "Execucao cancelada.");
+            }
+
+            // 1. Verificar e restaurar perfis de servico nativos (S-1-5-18, S-1-5-19, S-1-5-20)
+            obs.OnOutput("1/5 Verificando perfis de servico nativos (S-1-5-18, S-1-5-19, S-1-5-20) em ProfileList...");
+            IList<string> restoredSids = _host.EnsureNativeServiceProfilesPresent();
+            EnsureProfileDirectory(@"C:\Windows\System32\config\systemprofile");
+            EnsureProfileDirectory(@"C:\Windows\ServiceProfiles\LocalService");
+            EnsureProfileDirectory(@"C:\Windows\ServiceProfiles\NetworkService");
+
+            if (restoredSids.Count > 0)
+            {
+                obs.OnOutput("Perfis restaurados no Registro: " + string.Join(", ", new List<string>(restoredSids).ToArray()));
+            }
+            else
+            {
+                obs.OnOutput("Perfis nativos S-1-5-18/19/20 ja estavam presentes em ProfileList.");
+            }
+
+            // 2. Parar servicos dependentes antes de limpar caches
+            string[] coreServices = new string[] { "wuauserv", "bits", "DoSvc", "CDPSvc", "UsoSvc", "InstallService" };
+            obs.OnOutput("2/5 Parando servicos de atualizacao e Store...");
+            for (int i = 0; i < coreServices.Length; i++)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    sw.Stop();
+                    return BuildResult("drv_wu_repair", "Reparar Windows Update, Store e Perfis de Servico", -1, true, sw.Elapsed, "Execucao cancelada.");
+                }
+                _runner.Run("sc.exe", new string[] { "stop", coreServices[i] }, ProcessRunner.DefaultTimeoutMs, null, null, false, cancellationToken);
+            }
+
+            // 3. Backup e limpeza dos caches de download
+            obs.OnOutput("3/5 Fazendo backup e limpando caches de DoSvc e SoftwareDistribution\\Download...");
+            int cachesCleaned = 0;
+            if (BackupAndRecreateCache(@"C:\Windows\SoftwareDistribution\Download", stamp, obs)) cachesCleaned++;
+            if (BackupAndRecreateCache(@"C:\Windows\ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache", stamp, obs)) cachesCleaned++;
+            if (BackupAndRecreateCache(@"C:\ProgramData\Microsoft\Network\Downloader", stamp, obs)) cachesCleaned++;
+
+            // 4. Iniciar e validar os 6 servicos principais
+            string[] startOrder = new string[] { "DoSvc", "CDPSvc", "bits", "wuauserv", "UsoSvc", "InstallService" };
+            List<string> failedServices = new List<string>();
+            obs.OnOutput("4/5 Iniciando e verificando servicos (DoSvc, CDPSvc, bits, wuauserv, UsoSvc, InstallService)...");
+
+            for (int i = 0; i < startOrder.Length; i++)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    sw.Stop();
+                    return BuildResult("drv_wu_repair", "Reparar Windows Update, Store e Perfis de Servico", -1, true, sw.Elapsed, "Execucao cancelada.");
+                }
+
+                string svc = startOrder[i];
+                _runner.Run("sc.exe", new string[] { "start", svc }, ProcessRunner.DefaultTimeoutMs, null, null, false, cancellationToken);
+                if (IsServiceRunning(svc, cancellationToken))
+                {
+                    obs.OnOutput(string.Format(" - [OK] {0}: RUNNING", svc));
+                }
+                else
+                {
+                    failedServices.Add(svc);
+                    obs.OnError(string.Format(" - [FALHA] {0}: nao atingiu estado RUNNING", svc));
+                }
+            }
+
+            // 5. Recuperacao condicional do WSearch (Windows.db)
+            obs.OnOutput("5/5 Verificando Windows Search (WSearch)...");
+            string wsearchStatus = RecoverWSearchConditionally(stamp, obs, cancellationToken);
+
+            sw.Stop();
+            int exitCode = failedServices.Count == 0 ? 0 : 1;
+            string summary = string.Format(
+                "Perfis restaurados: {0} | Caches limpos: {1} | Servicos OK: {2}/{3} | {4}",
+                restoredSids.Count,
+                cachesCleaned,
+                startOrder.Length - failedServices.Count,
+                startOrder.Length,
+                wsearchStatus);
+            if (failedServices.Count > 0)
+            {
+                summary += " | Falhas: " + string.Join(", ", failedServices.ToArray());
+            }
+
+            obs.OnOutput(summary);
+            LogAction("Reparar Windows Update, Store e Perfis de Servico", exitCode, summary);
+            return BuildResult("drv_wu_repair", "Reparar Windows Update, Store e Perfis de Servico", exitCode, false, sw.Elapsed, summary);
+        }
+
+        private void EnsureProfileDirectory(string path)
+        {
+            if (!_host.DirectoryExists(path))
+            {
+                _host.CreateDirectory(path);
+            }
+        }
+
+        private bool BackupAndRecreateCache(string path, string stamp, IExecutionObserver obs)
+        {
+            if (!_host.DirectoryExists(path))
+            {
+                return false;
+            }
+
+            string backupPath = path + ".bak_" + stamp;
+            if (_host.TryMoveDirectory(path, backupPath))
+            {
+                _host.CreateDirectory(path);
+                obs.OnOutput(string.Format(" - Cache movido para backup: {0}", backupPath));
+                return true;
+            }
+
+            obs.OnOutput(string.Format(" - Aviso: nao foi possivel mover '{0}' (arquivos em uso).", path));
+            return false;
+        }
+
+        private bool IsServiceRunning(string serviceName, CancellationToken cancellationToken)
+        {
+            ProcessResult res = _runner.Run(
+                "sc.exe",
+                new string[] { "query", serviceName },
+                ProcessRunner.DefaultTimeoutMs,
+                null,
+                null,
+                false,
+                cancellationToken);
+
+            string output = res != null && res.StandardOutput != null ? res.StandardOutput : "";
+            return output.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private string RecoverWSearchConditionally(string stamp, IExecutionObserver obs, CancellationToken cancellationToken)
+        {
+            ProcessResult queryRes = _runner.Run(
+                "sc.exe",
+                new string[] { "query", "WSearch" },
+                ProcessRunner.DefaultTimeoutMs,
+                null,
+                null,
+                false,
+                cancellationToken);
+
+            string initialOutput = queryRes != null && queryRes.StandardOutput != null ? queryRes.StandardOutput : "";
+            if (queryRes != null && queryRes.ExitCode != 0 && string.IsNullOrEmpty(initialOutput))
+            {
+                obs.OnOutput(" - WSearch nao encontrado/indisponivel neste sistema.");
+                return "WSearch: indisponivel";
+            }
+
+            if (initialOutput.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                obs.OnOutput(" - [OK] WSearch ja esta RUNNING; indice Windows.db preservado.");
+                return "WSearch: OK (indice preservado)";
+            }
+
+            _runner.Run("sc.exe", new string[] { "start", "WSearch" }, ProcessRunner.DefaultTimeoutMs, null, null, false, cancellationToken);
+            if (IsServiceRunning("WSearch", cancellationToken))
+            {
+                obs.OnOutput(" - [OK] WSearch iniciado normalmente; indice Windows.db preservado.");
+                return "WSearch: iniciado (indice preservado)";
+            }
+
+            const string windowsDbPath = @"C:\ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.db";
+            if (_host.FileExists(windowsDbPath))
+            {
+                _runner.Run("sc.exe", new string[] { "stop", "WSearch" }, ProcessRunner.DefaultTimeoutMs, null, null, false, cancellationToken);
+                string dbBackupPath = windowsDbPath + ".bak_" + stamp;
+                if (_host.TryMoveFile(windowsDbPath, dbBackupPath))
+                {
+                    obs.OnOutput(" - Banco corrompido movido para backup: " + dbBackupPath);
+                    _runner.Run("sc.exe", new string[] { "start", "WSearch" }, ProcessRunner.DefaultTimeoutMs, null, null, false, cancellationToken);
+                    bool recovered = IsServiceRunning("WSearch", cancellationToken);
+                    obs.OnOutput(recovered
+                        ? " - [OK] WSearch iniciado apos recriacao do indice."
+                        : " - [AVISO] WSearch ainda falhou ao iniciar apos backup do Windows.db.");
+                    return recovered ? "WSearch: recuperado (Windows.db recriado)" : "WSearch: Windows.db movido, aguardando reboot";
+                }
+            }
+
+            obs.OnOutput(" - [AVISO] WSearch parado e sem Windows.db acessivel para backup.");
+            return "WSearch: parado";
         }
 
         private static string ExecuteComUpdateSearch(IExecutionObserver observer)

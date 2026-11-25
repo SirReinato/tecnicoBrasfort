@@ -191,7 +191,7 @@ Tecnico Brasfort/
 │       │   ├── AccessGate.cs            # Validação fail-closed PBKDF2-SHA256 + FixedTimeEquals XOR
 │       │   ├── ElevationPolicy.cs       # Decisão de elevação (headless), parsing de credenciais e erros Win32
 │       │   ├── ElevationService.cs      # Detecção UAC 64-bit, LogonUserW, WNetGetConnectionW e relançamento
-│       │   ├── ActionCatalog.cs         # Catálogo das 20 ações em lote, 5 Ferramentas Rápidas, 5 Combos e [?]
+│       │   ├── ActionCatalog.cs         # Catálogo das 21 ações em lote, 5 Ferramentas Rápidas, 5 Combos e [?]
 │       │   ├── TicketSummaryBuilder.cs  # Gerador de texto de fechamento de chamado
 │       │   ├── BatchExecutionEngine.cs  # Orquestrador de fila tolerante a falhas e detecção de reboot
 │       │   ├── ArgumentEscaper.cs       # Escaping e validação estrita de argumentos no net48
@@ -215,7 +215,7 @@ Tecnico Brasfort/
 │           ├── NetworkModule.cs         # Reset de rede, IP/DNS, conectividade (3000 ms), ncpa.cpl
 │           ├── PrintingModule.cs        # Limpar spooler/fila, listar impressoras (máquina + usuário)
 │           ├── DiagnosticsModule.cs     # Info do sistema WMI, top 15 WorkingSet64 e resmon.exe
-│           ├── DriversUpdatesModule.cs  # Dispositivos com erro, backup >= 5 GB, Windows Update COM
+│           ├── DriversUpdatesModule.cs  # Dispositivos com erro, backup >= 5 GB, Windows Update COM e reparo WU/Store/ProfileList/WSearch
 │           ├── ActiveDirectoryModule.cs # gpupdate, gpresult, nltest, w32tm /stripchart, Exchange TLS 1.2
 │           └── AuditModule.cs           # Leitura de logs do PC para GUI
 └── tests/
@@ -334,3 +334,4 @@ O projeto adota **testes unitários isolados e 100% headless com fakes em memór
 | 2026-11-24 | Agente IA | Evolução `v2.2` (`SIR-155` / `tecnico_ausente_e_icone_design.md`): ícone padrão multi-resolução (`scripts/New-AppIcon.ps1`, `Assets/app.ico`, `/win32icon:`) e `UI/AppIconProvider.cs` aplicado às 6 janelas visíveis e `NotifyIcon`. |
 | `2026-11-24` | Agente IA | Evolução `v2.2` (`SIR-156`): `Core/UnattendedSessionState.cs` headless, `SessionApplicationContext` em `Program.cs`, desinscrição de eventos/guarda cross-thread em `MainForm.cs` e cobertura em `V2CoreTests.cs`. |
 | 2026-11-24 | Agente IA | Evolução `v2.2` (`SIR-157`): Modo Técnico Ausente na `ExecutionProgressForm` (`_btnUnattended` -> `_lblUnattendedActive`, encerramento total ao fechar após conclusão) e `BackgroundStatusBannerForm.ForceClose()`. |
+| 2026-11-25 | Agente IA | Evolução `v2.3` (`SIR-160`): verificação e reparo de Windows Update/Store (`drv_wu_repair`), restauração de `ProfileList` (`S-1-5-18/19/20`), backup/limpeza de caches `DoSvc`/`SoftwareDistribution` e recuperação condicional do `WSearch` (`Windows.db`). |

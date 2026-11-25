@@ -60,6 +60,118 @@ namespace TecnicoBrasfort.Core
             }
         }
 
+        public bool TryMoveFile(string sourcePath, string destinationPath)
+        {
+            try
+            {
+                if (!File.Exists(sourcePath))
+                {
+                    return false;
+                }
+                string destDir = Path.GetDirectoryName(destinationPath);
+                if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                {
+                    Directory.CreateDirectory(destDir);
+                }
+                File.Move(sourcePath, destinationPath);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public bool TryMoveDirectory(string sourcePath, string destinationPath)
+        {
+            try
+            {
+                if (!Directory.Exists(sourcePath))
+                {
+                    return false;
+                }
+                Directory.Move(sourcePath, destinationPath);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public IList<string> EnsureNativeServiceProfilesPresent()
+        {
+            List<string> restored = new List<string>();
+            EnsureServiceProfile(
+                "S-1-5-18",
+                @"%systemroot%\system32\config\systemprofile",
+                12,
+                new byte[] { 1, 1, 0, 0, 0, 0, 0, 5, 18, 0, 0, 0 },
+                restored);
+            EnsureServiceProfile(
+                "S-1-5-19",
+                @"%SystemRoot%\ServiceProfiles\LocalService",
+                0,
+                new byte[] { 1, 1, 0, 0, 0, 0, 0, 5, 19, 0, 0, 0 },
+                restored);
+            EnsureServiceProfile(
+                "S-1-5-20",
+                @"%SystemRoot%\ServiceProfiles\NetworkService",
+                0,
+                new byte[] { 1, 1, 0, 0, 0, 0, 0, 5, 20, 0, 0, 0 },
+                restored);
+            return restored;
+        }
+
+        private static void EnsureServiceProfile(
+            string sid,
+            string profileImagePath,
+            int flags,
+            byte[] sidBytes,
+            IList<string> restored)
+        {
+            const string profileListPath = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList";
+            using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+            using (RegistryKey profileList = baseKey.OpenSubKey(profileListPath, true))
+            {
+                if (profileList == null)
+                {
+                    return;
+                }
+
+                using (RegistryKey existing = profileList.OpenSubKey(sid, true))
+                {
+                    if (existing != null)
+                    {
+                        object currentPath = existing.GetValue("ProfileImagePath", "", RegistryValueOptions.DoNotExpandEnvironmentNames);
+                        if (currentPath != null && !string.IsNullOrEmpty(Convert.ToString(currentPath)))
+                        {
+                            return;
+                        }
+
+                        existing.SetValue("ProfileImagePath", profileImagePath, RegistryValueKind.ExpandString);
+                        existing.SetValue("Flags", flags, RegistryValueKind.DWord);
+                        existing.SetValue("State", 0, RegistryValueKind.DWord);
+                        existing.SetValue("Sid", sidBytes, RegistryValueKind.Binary);
+                        restored.Add(sid);
+                        return;
+                    }
+                }
+
+                using (RegistryKey created = profileList.CreateSubKey(sid))
+                {
+                    if (created != null)
+                    {
+                        created.SetValue("ProfileImagePath", profileImagePath, RegistryValueKind.ExpandString);
+                        created.SetValue("Flags", flags, RegistryValueKind.DWord);
+                        created.SetValue("State", 0, RegistryValueKind.DWord);
+                        created.SetValue("Sid", sidBytes, RegistryValueKind.Binary);
+                        restored.Add(sid);
+                    }
+                }
+            }
+        }
+
         public long GetAvailableFreeSpaceBytes(string path)
         {
             string fullPath = Path.GetFullPath(path);

@@ -237,6 +237,14 @@ namespace TecnicoBrasfort.Core
                 true, true, false, false, false, "~30-60s"));
 
             list.Add(CreateAction(
+                "drv_wu_repair",
+                "Reparar Windows Update, Store e Perfis de Servico",
+                "Drivers e Updates",
+                "Verifica e restaura perfis nativos (S-1-5-18/19/20) em ProfileList, faz backup e limpa caches do DoSvc/SoftwareDistribution, reinicia servicos (DoSvc, CDPSvc, bits, wuauserv, UsoSvc, InstallService) e recupera WSearch apenas se estiver parado/falhando.",
+                "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\" & net stop/start wuauserv bits DoSvc CDPSvc UsoSvc InstallService",
+                true, true, false, false, false, "~30-60s"));
+
+            list.Add(CreateAction(
                 "drv_backup",
                 "Backup de Drivers (pnputil)",
                 "Drivers e Updates",

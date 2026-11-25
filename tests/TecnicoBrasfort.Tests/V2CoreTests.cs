@@ -80,7 +80,7 @@ namespace TecnicoBrasfort.Tests
             IList<ActionDefinition> quick = ActionCatalog.GetQuickTools();
             IList<ComboDefinition> combos = ActionCatalog.GetCombos();
 
-            Assert.Equal(20, batch.Count);
+            Assert.Equal(21, batch.Count);
             Assert.Equal(5, quick.Count);
             Assert.Equal(5, combos.Count);
 

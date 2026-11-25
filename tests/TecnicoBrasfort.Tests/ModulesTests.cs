@@ -16,6 +16,8 @@ namespace TecnicoBrasfort.Tests
             run("MaintenanceModule_CheckDiskC_ReturnsRebootRequiredOnlyOnBootSchedule", MaintenanceModule_CheckDiskC_ReturnsRebootRequiredOnlyOnBootSchedule);
             run("DriversUpdatesModule_BackupDrivers_RejectsWhenFreeSpaceBelow5Gb", DriversUpdatesModule_BackupDrivers_RejectsWhenFreeSpaceBelow5Gb);
             run("DriversUpdatesModule_BackupDrivers_RunsPnputilWhenSpaceSufficient", DriversUpdatesModule_BackupDrivers_RunsPnputilWhenSpaceSufficient);
+            run("DriversUpdatesModule_RepairWindowsUpdateAndStore_RestoresProfilesAndPreservesHealthyWSearch", DriversUpdatesModule_RepairWindowsUpdateAndStore_RestoresProfilesAndPreservesHealthyWSearch);
+            run("DriversUpdatesModule_RepairWindowsUpdateAndStore_RecoversWSearchWhenStoppedAndFailsToStart", DriversUpdatesModule_RepairWindowsUpdateAndStore_RecoversWSearchWhenStoppedAndFailsToStart);
             run("ActiveDirectoryModule_TryParseW32TmOffsetSeconds_ParsesOffsets", ActiveDirectoryModule_TryParseW32TmOffsetSeconds_ParsesOffsets);
         }
 
@@ -100,6 +102,48 @@ namespace TecnicoBrasfort.Tests
             Assert.Equal(1, runner.Invocations.Count);
             Assert.Equal("pnputil.exe", runner.Invocations[0].FileName);
             Assert.Equal("/export-driver", runner.Invocations[0].Args[0]);
+        }
+
+        private static void DriversUpdatesModule_RepairWindowsUpdateAndStore_RestoresProfilesAndPreservesHealthyWSearch()
+        {
+            FakeProcessRunner runner = new FakeProcessRunner();
+            runner.NextStdout = "STATE              : 4  RUNNING";
+            FakeHostEnvironment host = new FakeHostEnvironment();
+            host.RestoredServiceProfiles.Add("S-1-5-19");
+            host.RestoredServiceProfiles.Add("S-1-5-20");
+            host.Directories.Add(@"C:\Windows\SoftwareDistribution\Download");
+            host.Files[@"C:\ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.db"] = "db";
+
+            EnvironmentInfo env = CreateTestEnv();
+            AppConfig cfg = new AppConfig();
+            AuditLogger logger = new AuditLogger(host, env, @"C:\LogsP", @"C:\LogsS");
+
+            DriversUpdatesModule drv = new DriversUpdatesModule(runner, host, logger, env);
+            ActionExecutionResult res = drv.RepairWindowsUpdateAndStore(NullExecutionObserver.Instance, CancellationToken.None);
+
+            Assert.True(res.Success, "Reparo deve concluir com sucesso quando servicos ficam RUNNING.");
+            Assert.True(res.Summary.Contains("Perfis restaurados: 2"), "Deve reportar perfis restaurados.");
+            Assert.True(res.Summary.Contains("Caches limpos: 1"), "Deve mover cache SoftwareDistribution\\Download.");
+            Assert.True(host.FileExists(@"C:\ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.db"), "Windows.db nao deve ser movido quando WSearch esta RUNNING.");
+        }
+
+        private static void DriversUpdatesModule_RepairWindowsUpdateAndStore_RecoversWSearchWhenStoppedAndFailsToStart()
+        {
+            FakeProcessRunner runner = new FakeProcessRunner();
+            runner.NextStdout = "STATE              : 1  STOPPED";
+            FakeHostEnvironment host = new FakeHostEnvironment();
+            host.Files[@"C:\ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.db"] = "corrupt-db";
+
+            EnvironmentInfo env = CreateTestEnv();
+            AppConfig cfg = new AppConfig();
+            AuditLogger logger = new AuditLogger(host, env, @"C:\LogsP", @"C:\LogsS");
+
+            DriversUpdatesModule drv = new DriversUpdatesModule(runner, host, logger, env);
+            ActionExecutionResult res = drv.RepairWindowsUpdateAndStore(NullExecutionObserver.Instance, CancellationToken.None);
+
+            Assert.True(!res.Success, "Quando servicos nao ficam RUNNING, ExitCode deve ser 1.");
+            Assert.True(!host.FileExists(@"C:\ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.db"), "Windows.db deve ser movido para backup quando WSearch falha.");
+            Assert.True(host.MovedPaths.Count == 1, "Deve registrar 1 movimentacao de backup para Windows.db.");
         }
 
         private static void ActiveDirectoryModule_TryParseW32TmOffsetSeconds_ParsesOffsets()
